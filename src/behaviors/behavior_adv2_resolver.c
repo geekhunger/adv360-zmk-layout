@@ -47,9 +47,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define ADV2_SEMANTIC_COUNT ADV2_SLASH
 #define SEMANTIC_TAPPING_TERM_MS 170
 #define MOD_TAP_TAPPING_TERM_MS 90
-#define MOD_TAP_CHORD_GRACE_MS 35
+#define MOD_TAP_CHORD_GRACE_MS 12
 #define NAV_REPEAT_WINDOW_MS 120
 #define TAP_PULSE_MS 12
+#define TAP_PULSE_GAP_MS 4
 #define ADV2_CAPTURED_POSITION_EVENTS 40
 #define ADV2_MOD_TAP_COUNT 6
 #define ADV2_TAP_PULSE_COUNT 32
@@ -100,6 +101,7 @@ static uint8_t mod_tap_hold_counts[8];
 
 struct tap_pulse_state {
     uint32_t keycode;
+    uint8_t queued;
     bool active;
     struct k_work_delayable release_work;
 };
@@ -127,6 +129,7 @@ struct semantic_tap_dance {
     uint16_t id;
     int32_t position;
     uint8_t count;
+    uint8_t mods;
     bool active;
     bool pressed;
     bool decided;
@@ -156,16 +159,38 @@ static void emit_code(uint32_t keycode, bool pressed) {
     raise_zmk_keycode_state_changed_from_encoded(keycode, pressed, k_uptime_get());
 }
 
+static uint8_t activate_missing_modifiers(uint8_t desired) {
+    const uint8_t missing = desired & ~zmk_hid_get_explicit_mods();
+
+    for (size_t i = 0; i < ARRAY_SIZE(modifier_entries); i++) {
+        if (missing & modifier_entries[i].flag) {
+            emit_code(modifier_entries[i].keycode, true);
+        }
+    }
+    return missing;
+}
+
+static void release_temporary_modifiers(uint8_t temporary) {
+    for (size_t i = 0; i < ARRAY_SIZE(modifier_entries); i++) {
+        if (temporary & modifier_entries[i].flag) {
+            emit_code(modifier_entries[i].keycode, false);
+        }
+    }
+}
+
 static bool cancel_tap_pulse(uint32_t keycode) {
     for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
         struct tap_pulse_state *pulse = &tap_pulses[i];
-        if (pulse->keycode != keycode || !pulse->active) {
+        if (pulse->keycode != keycode || (!pulse->active && pulse->queued == 0)) {
             continue;
         }
 
         k_work_cancel_delayable(&pulse->release_work);
-        pulse->active = false;
-        emit_code(keycode, false);
+        pulse->queued = 0;
+        if (pulse->active) {
+            pulse->active = false;
+            emit_code(keycode, false);
+        }
         return true;
     }
     return false;
@@ -182,12 +207,25 @@ static void tap_pulse_release(struct k_work *item) {
     struct tap_pulse_state *pulse =
         CONTAINER_OF(delayable, struct tap_pulse_state, release_work);
 
-    if (!pulse->active) {
+    if (!pulse->active && pulse->queued == 0) {
         return;
     }
 
-    pulse->active = false;
-    emit_code(pulse->keycode, false);
+    if (pulse->active) {
+        pulse->active = false;
+        emit_code(pulse->keycode, false);
+        if (pulse->queued > 0) {
+            k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_GAP_MS));
+        }
+        return;
+    }
+
+    if (pulse->queued > 0) {
+        pulse->queued--;
+        pulse->active = true;
+        emit_code(pulse->keycode, true);
+        k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
+    }
 }
 
 /*
@@ -218,9 +256,15 @@ static void pulse_code(uint32_t keycode) {
         return;
     }
 
-    cancel_tap_pulse(keycode);
+    if (pulse->active || pulse->queued > 0) {
+        if (pulse->queued < UINT8_MAX) {
+            pulse->queued++;
+        }
+        return;
+    }
 
     pulse->keycode = keycode;
+    pulse->queued = 0;
     pulse->active = true;
     emit_code(keycode, true);
     k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
@@ -824,6 +868,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
 static void clear_semantic_dance(struct semantic_tap_dance *dance) {
     dance->position = -1;
     dance->count = 0;
+    dance->mods = 0;
     dance->active = false;
     dance->pressed = false;
     dance->decided = false;
@@ -836,7 +881,9 @@ static void decide_semantic_dance(struct semantic_tap_dance *dance, bool held) {
 
     dance->decided = true;
     k_work_cancel_delayable(&dance->timer);
+    const uint8_t temporary_mods = activate_missing_modifiers(dance->mods);
     resolve_semantic(dance->id, held, dance->count);
+    release_temporary_modifiers(temporary_mods);
 
     if (!dance->pressed) {
         clear_semantic_dance(dance);
@@ -871,6 +918,7 @@ static int press_semantic_dance(uint16_t id, struct zmk_behavior_binding_event e
     }
 
     dance->pressed = true;
+    dance->mods |= zmk_hid_get_explicit_mods();
     if (dance->count < UINT8_MAX) {
         dance->count++;
     }
@@ -891,10 +939,8 @@ static int release_semantic_dance(uint16_t id, struct zmk_behavior_binding_event
     }
 
     dance->pressed = false;
-    if (!dance->decided) {
-        /* A short text tap is complete at release; 170 ms is only the hold threshold. */
-        decide_semantic_dance(dance, false);
-    } else {
+    dance->mods |= zmk_hid_get_explicit_mods();
+    if (dance->decided) {
         clear_semantic_dance(dance);
     }
     return ZMK_BEHAVIOR_OPAQUE;
@@ -1725,6 +1771,7 @@ static int adv2_resolver_init(const struct device *dev) {
     }
     for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
         tap_pulses[i].keycode = 0;
+        tap_pulses[i].queued = 0;
         tap_pulses[i].active = false;
         k_work_init_delayable(&tap_pulses[i].release_work, tap_pulse_release);
     }

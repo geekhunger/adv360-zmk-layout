@@ -5,6 +5,16 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.3
+
+- Restore QMK tap-dance counting for semantic letters: equal consecutive taps
+  accumulate until another key interrupts the dance or the 170 ms term expires.
+- Queue repeated HID pulses for the same output key with a report gap instead of
+  cancelling the preceding pulse, preserving double letters such as `pp`/`dd`.
+- Preserve the modifier snapshot of a delayed semantic dance until it resolves.
+- Reduce the post-release chord grace from 35 ms to 12 ms so Cmd/Alt+Backspace
+  no longer feels as if it pauses before deleting.
+
 ### v0.2.2
 
 - Keep ordinary semantic letters and single Delete/Backspace taps down for one

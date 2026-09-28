@@ -13,12 +13,13 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - Windows and macOS use different host sequences for the same intended symbol.
 - QMK timing is preserved: 90 ms for modifier tap/hold and 170 ms for letters.
 - The letter keys use a custom semantic hold engine rather than ZMK hold-taps.
-  A released short tap is emitted immediately, while an uninterrupted key that
-  is still down at 170 ms gets its hold symbol. This small scheduling adaptation
-  avoids buffering rapid text over the ZMK/BLE path while preserving every
-  symbol decision and the original 170 ms hold threshold. Plain text outputs
-  stay pressed for one 12 ms HID report window; their releases run in parallel,
-  so fast rolls are not serialized and repeated letters remain distinct.
+  Like QMK Tap Dance, equal consecutive taps accumulate until another key
+  interrupts the dance or the 170 ms term expires. An uninterrupted key that is
+  still down at 170 ms gets its hold symbol. The captured modifier state follows
+  a delayed dance even when its dual-role modifier is released slightly early.
+  Plain text outputs stay pressed for one 12 ms HID report window; different
+  keys run in parallel, while repeated equal outputs are queued with a report
+  gap so double letters remain distinct.
 - Delete/Alt, Backspace/Alt, Tab/Shift, both Esc/Cmd-or-Ctrl keys, and
   Enter/Shift share one parallel 90 ms resolver. Each key owns its timer, so
   simultaneous modifiers never accumulate serial 90 ms delays.
@@ -31,7 +32,7 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - Arrow presses are decisive live actions and promote pending modifiers on key
   down so selection and navigation remain responsive while held.
 - In an already detected multi-modifier chord, a released candidate remains
-  latched for 35 ms. A following action can therefore still receive Cmd/Shift/
+  latched for 12 ms. A following action can therefore still receive Cmd/Shift/
   Alt/Ctrl when natural finger release order differs by only a few milliseconds.
 - Releasing a dual-role target inside a chord promotes the older candidates and
   taps the target. This explicitly covers Cmd+Delete, Alt+Cmd+Esc, Shift+Tab,
