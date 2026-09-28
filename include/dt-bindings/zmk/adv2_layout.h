@@ -31,10 +31,6 @@
 #define ADV2_DOT 27
 #define ADV2_SLASH 28
 
-#define ADV2_HOLD_FLAG 0x100
-#define ADV2_HOLD(key_id) (ADV2_HOLD_FLAG | (key_id))
-#define ADV2_TAP(key_id) (key_id)
-
 #define ADV2_NAV_FLAG 0x200
 #define ADV2_NAV_LEFT (ADV2_NAV_FLAG | 1)
 #define ADV2_NAV_UP (ADV2_NAV_FLAG | 2)
@@ -43,7 +39,7 @@
 #define ADV2_NAV_DELETE (ADV2_NAV_FLAG | 5)
 #define ADV2_NAV_BACKSPACE (ADV2_NAV_FLAG | 6)
 
-/* Symmetric cross-half Alt/Delete and Alt/Backspace tap-hold keys. */
+/* Independent QMK-style 90 ms mod-taps; no side/chord heuristic. */
 #define ADV2_DUAL_FLAG 0x400
 #define ADV2_DUAL_DELETE (ADV2_DUAL_FLAG | 5)
 #define ADV2_DUAL_BACKSPACE (ADV2_DUAL_FLAG | 6)

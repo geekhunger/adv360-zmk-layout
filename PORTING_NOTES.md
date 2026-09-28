@@ -12,18 +12,22 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - Letter holds and all modifier-aware symbol decisions mirror the QMK source.
 - Windows and macOS use different host sequences for the same intended symbol.
 - QMK timing is preserved: 90 ms for modifier tap/hold and 170 ms for letters.
-- QMK's `IGNORE_MOD_TAP_INTERRUPT` is represented by ZMK's `tap-preferred`
-  decision rule for modifier tap-holds.
-- Letter hold-taps use positional interruption with an unreachable trigger
-  position. Any real second key therefore resolves the first letter as a tap
-  immediately, matching QMK Tap Dance instead of buffering fast typing.
-- Delete/Backspace use a shared custom 90 ms state machine. It measures on the
-  central half, makes the two opposite-hand Alt chords symmetric, and measures
-  the repeat gesture from the first tap's release: tap, then press-and-hold
-  keeps Delete/Backspace down for normal host key repeat.
-- Existing modifiers never force a Delete/Backspace decision. Holding a nav
-  key as Alt alongside Cmd/Ctrl/Shift therefore remains possible for chords
-  such as macOS Alt+Cmd+Esc.
+- The letter keys use a custom QMK-compatible Tap-Dance engine rather than ZMK
+  hold-taps: 170 ms starts the hold action, another physical key resolves the
+  pending key immediately as a tap, and another press of the same key increases
+  its tap count. Rapid double letters are therefore emitted twice without the
+  global hold-tap event backlog.
+- Delete and Backspace use independent 90 ms mod-taps. Tap versus Alt is never
+  inferred from keyboard side, opposite-hand use, or already-held modifiers.
+- The first unresolved mod-tap owns chronological event order, as in QMK.
+  Following position events wait until that key is released as a tap or reaches
+  90 ms as Alt. `IGNORE_MOD_TAP_INTERRUPT` is therefore preserved instead of
+  turning another key press into a hold decision.
+- After a completed tap, pressing the same Delete/Backspace key again within
+  90 ms immediately holds its navigation key down. This reproduces the original
+  tap, tap-and-hold gesture and lets the host repeat deletion continuously.
+- Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
+  Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - German remains the required host keyboard layout.
 
 ## Deliberate hardware normalization
@@ -46,15 +50,15 @@ on every layer: positions 6, 7, 20, 21, 34, 39, 60, and 75.
 Plain ZMK hold-tap can detect a hold, but the original QMK callbacks also
 inspect arbitrary combinations of Shift, Alt, Ctrl, and GUI, temporarily
 suppress selected modifiers, select an OS-specific sequence, and remap
-Windows navigation. The resolver implements that compatibility logic plus the
-paired Delete/Backspace state machine required for reliable cross-half chords.
+Windows navigation. The resolver implements that compatibility logic, the
+QMK-style letter Tap-Dance counter, and the chronological 90 ms modifier state
+machine.
 
 Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
 power management, and the Advantage 360 board definition remain Kinesis ZMK.
 
-## One unavoidable timing-model difference
+## Intentional implementation boundary
 
-QMK Tap Dance batches a rapid multi-tap count and then emits that many copies.
-ZMK hold-tap resolves each released tap individually. A single tap, a long
-hold, modifier combinations, and repeated manual tapping have the same intended
-result, but the exact delivery timing of very rapid repeated taps can differ.
+Only the layout's semantic behaviors are custom. Matrix scanning, split
+transport, USB/Bluetooth HID, power management, and bootloader behavior remain
+unchanged Kinesis/ZMK code.

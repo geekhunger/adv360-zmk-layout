@@ -14,7 +14,8 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - getrennte macOS-/Windows-Sequenzen für semantisch gleiche Sonderzeichen
 - Windows-Navigation als Gegenstück zum macOS-Verhalten
 - originale QMK-Timings: 90 ms für Modifier, 170 ms für Buchstaben
-- symmetrische, zentral ausgewertete Alt/Delete- und Alt/Backspace-Akkorde
+- zeitbasierte, seitenunabhängige 90-ms-Mod-Taps für Delete/Backspace ↔ Alt
+- QMK-kompatible 170-ms-Tap-Dances mit echtem Zähler für Doppelbuchstaben
 - sofortige Tap-Auflösung bei unterbrochenen Buchstaben für schnelles Schreiben
 - zusätzliche Advantage-360-Tasten auf allen Ebenen ohne Funktion
 

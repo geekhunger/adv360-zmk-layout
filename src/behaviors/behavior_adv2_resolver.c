@@ -14,6 +14,7 @@
 #include <drivers/behavior.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/keycode_state_changed.h>
+#include <zmk/events/position_state_changed.h>
 #include <zmk/hid.h>
 #include <zmk/keymap.h>
 
@@ -42,8 +43,11 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define ALT_CODE_DELAY_MS 12
 #define ADV2_MAX_POSITIONS 128
+#define ADV2_SEMANTIC_COUNT ADV2_SLASH
+#define SEMANTIC_TAPPING_TERM_MS 170
 #define NAV_DUAL_TAPPING_TERM_MS 90
 #define NAV_DUAL_QUICK_TAP_MS 90
+#define ADV2_CAPTURED_POSITION_EVENTS 40
 
 enum nav_state {
     NAV_IDLE,
@@ -67,16 +71,36 @@ struct nav_dual_state {
     enum nav_dual_phase phase;
     bool physically_pressed;
     bool hold_active;
-    bool release_pending;
-    uint8_t dependents;
-    struct nav_dual_state *hold_owner;
-    struct zmk_behavior_binding_event press_event;
+    uint32_t hold_keycode;
     struct k_work_delayable hold_work;
 };
 
 static struct nav_dual_state nav_duals[2];
-static uint8_t nav_alt_holds;
-static uint32_t nav_alt_keycode;
+static uint8_t nav_lalt_holds;
+static uint8_t nav_ralt_holds;
+static struct nav_dual_state *pending_nav_dual;
+static struct zmk_position_state_changed_event
+    captured_position_events[ADV2_CAPTURED_POSITION_EVENTS];
+static uint8_t captured_position_event_count;
+
+struct semantic_tap_dance {
+    uint16_t id;
+    int32_t position;
+    uint8_t count;
+    bool active;
+    bool pressed;
+    bool decided;
+    struct k_work_delayable timer;
+};
+
+static struct semantic_tap_dance semantic_dances[ADV2_SEMANTIC_COUNT];
+
+static void resolve_semantic(uint16_t id, bool held, uint8_t count);
+static int mod_tap_capture_position_listener(const zmk_event_t *eh);
+
+/* Must run before the Tap-Dance interrupter so replayed events follow normal QMK order. */
+ZMK_LISTENER(adv2_mod_tap_capture, mod_tap_capture_position_listener);
+ZMK_SUBSCRIPTION(adv2_mod_tap_capture, zmk_position_state_changed);
 
 struct modifier_entry {
     uint8_t flag;
@@ -190,14 +214,22 @@ static uint32_t base_keycode(uint16_t id) {
     }
 }
 
-static void pass_key(uint16_t id) {
+static void pass_key(uint16_t id, uint8_t count) {
     uint32_t keycode = base_keycode(id);
-    if (keycode != 0) {
+    const uint8_t mods = zmk_hid_get_explicit_mods();
+
+    /* QMK key_pass(): OS command chords are issued once, text taps keep the dance count. */
+    if ((!is_windows() && has_any(mods, MOD_GUI)) ||
+        (is_windows() && has_any(mods, MOD_CTRL))) {
+        count = 1;
+    }
+
+    for (uint8_t i = 0; keycode != 0 && i < count; i++) {
         tap_code(keycode);
     }
 }
 
-static void resolve_semantic(uint16_t id, bool held) {
+static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool shift = has_any(mods, MOD_SHIFT);
     const bool alt = has_any(mods, MOD_ALT);
@@ -213,7 +245,7 @@ static void resolve_semantic(uint16_t id, bool held) {
         if (alt && !cg) {
             tap_without(MOD_ALT, W);
         } else {
-            pass_key(id);
+            pass_key(id, count);
         }
         return;
 
@@ -234,7 +266,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_R:
@@ -248,7 +280,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_F:
@@ -260,7 +292,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, F);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_A:
@@ -276,7 +308,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, A);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_S:
@@ -298,7 +330,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, S);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_D:
@@ -328,7 +360,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, D);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_T:
@@ -352,7 +384,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, T);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_G:
@@ -376,7 +408,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, G);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_Z:
@@ -384,7 +416,7 @@ static void resolve_semantic(uint16_t id, bool held) {
         if (alt && !cg) {
             tap_without(MOD_ALT, base_keycode(id));
         } else {
-            pass_key(id);
+            pass_key(id, count);
         }
         return;
 
@@ -405,7 +437,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, C);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_V:
@@ -421,7 +453,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, V);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_B:
@@ -437,7 +469,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, B);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_Y:
@@ -449,7 +481,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, Y);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_U:
@@ -469,7 +501,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, U);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_I:
@@ -485,7 +517,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, I);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_O:
@@ -505,7 +537,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, O);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_H:
@@ -529,7 +561,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, H);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_N:
@@ -541,7 +573,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, N);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_K:
@@ -563,7 +595,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, K);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_L:
@@ -575,7 +607,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, L);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_P:
@@ -595,7 +627,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_J:
@@ -611,7 +643,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_M:
@@ -631,7 +663,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_COMMA:
@@ -643,7 +675,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, COMMA);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_DOT:
@@ -663,7 +695,7 @@ static void resolve_semantic(uint16_t id, bool held) {
             }
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
 
     case ADV2_SLASH:
@@ -679,10 +711,106 @@ static void resolve_semantic(uint16_t id, bool held) {
             tap_without(MOD_ALT, FSLH);
             return;
         }
-        pass_key(id);
+        pass_key(id, count);
         return;
     }
 }
+
+static void clear_semantic_dance(struct semantic_tap_dance *dance) {
+    dance->position = -1;
+    dance->count = 0;
+    dance->active = false;
+    dance->pressed = false;
+    dance->decided = false;
+}
+
+static void decide_semantic_dance(struct semantic_tap_dance *dance, bool held) {
+    if (!dance->active || dance->decided) {
+        return;
+    }
+
+    dance->decided = true;
+    k_work_cancel_delayable(&dance->timer);
+    resolve_semantic(dance->id, held, dance->count);
+
+    if (!dance->pressed) {
+        clear_semantic_dance(dance);
+    }
+}
+
+static void semantic_dance_timer(struct k_work *item) {
+    struct k_work_delayable *delayable = k_work_delayable_from_work(item);
+    struct semantic_tap_dance *dance =
+        CONTAINER_OF(delayable, struct semantic_tap_dance, timer);
+
+    /* QMK key_down(): only an uninterrupted key that is still down gets its hold action. */
+    decide_semantic_dance(dance, dance->pressed);
+}
+
+static int press_semantic_dance(uint16_t id, struct zmk_behavior_binding_event event) {
+    if (id == 0 || id > ADV2_SEMANTIC_COUNT) {
+        return -EINVAL;
+    }
+
+    struct semantic_tap_dance *dance = &semantic_dances[id - 1];
+    if (!dance->active) {
+        dance->id = id;
+        dance->position = event.position;
+        dance->count = 0;
+        dance->active = true;
+        dance->decided = false;
+    }
+
+    if (dance->decided || dance->position != event.position) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+
+    dance->pressed = true;
+    if (dance->count < UINT8_MAX) {
+        dance->count++;
+    }
+
+    /* QMK resets KEY_TAP_TIMEOUT on every press of the same Tap-Dance key. */
+    k_work_reschedule(&dance->timer, K_MSEC(SEMANTIC_TAPPING_TERM_MS));
+    return ZMK_BEHAVIOR_OPAQUE;
+}
+
+static int release_semantic_dance(uint16_t id, struct zmk_behavior_binding_event event) {
+    if (id == 0 || id > ADV2_SEMANTIC_COUNT) {
+        return -EINVAL;
+    }
+
+    struct semantic_tap_dance *dance = &semantic_dances[id - 1];
+    if (!dance->active || dance->position != event.position) {
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+
+    dance->pressed = false;
+    if (dance->decided) {
+        clear_semantic_dance(dance);
+    }
+    return ZMK_BEHAVIOR_OPAQUE;
+}
+
+static int semantic_tap_dance_position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (ev == NULL || !ev->state) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    /* QMK preprocess_tap_dance(): a different key resolves every active dance first. */
+    for (size_t i = 0; i < ARRAY_SIZE(semantic_dances); i++) {
+        struct semantic_tap_dance *dance = &semantic_dances[i];
+        if (dance->active && !dance->decided && dance->position != ev->position) {
+            decide_semantic_dance(dance, false);
+        }
+    }
+
+    return ZMK_EV_EVENT_BUBBLE;
+}
+
+ZMK_LISTENER(adv2_semantic_tap_dance, semantic_tap_dance_position_listener);
+ZMK_SUBSCRIPTION(adv2_semantic_tap_dance, zmk_position_state_changed);
 
 static uint32_t nav_keycode(uint16_t action) {
     switch (action) {
@@ -772,30 +900,30 @@ static struct nav_dual_state *nav_dual_for_action(uint16_t action) {
     }
 }
 
-static struct nav_dual_state *other_nav_dual(struct nav_dual_state *state) {
-    return state == &nav_duals[0] ? &nav_duals[1] : &nav_duals[0];
-}
-
 static void reset_nav_dual(struct nav_dual_state *state) {
     state->position = -1;
     state->phase = NAV_DUAL_IDLE;
     state->physically_pressed = false;
     state->hold_active = false;
-    state->release_pending = false;
-    state->dependents = 0;
-    state->hold_owner = NULL;
+    state->hold_keycode = 0;
 }
+
+static uint8_t *nav_alt_hold_counter(uint32_t keycode) {
+    return keycode == RALT ? &nav_ralt_holds : &nav_lalt_holds;
+}
+
+static void release_captured_position_events(void);
 
 static void activate_nav_dual_hold(struct nav_dual_state *state) {
     if (state->hold_active) {
         return;
     }
 
-    if (nav_alt_holds == 0) {
-        nav_alt_keycode = is_windows() ? RALT : LALT;
-        emit_code(nav_alt_keycode, true);
+    state->hold_keycode = is_windows() ? RALT : LALT;
+    uint8_t *counter = nav_alt_hold_counter(state->hold_keycode);
+    if ((*counter)++ == 0) {
+        emit_code(state->hold_keycode, true);
     }
-    nav_alt_holds++;
     state->hold_active = true;
     state->phase = NAV_DUAL_HOLDING;
 }
@@ -806,8 +934,9 @@ static void release_nav_dual_hold(struct nav_dual_state *state) {
     }
 
     state->hold_active = false;
-    if (nav_alt_holds > 0 && --nav_alt_holds == 0) {
-        emit_code(nav_alt_keycode, false);
+    uint8_t *counter = nav_alt_hold_counter(state->hold_keycode);
+    if (*counter > 0 && --(*counter) == 0) {
+        emit_code(state->hold_keycode, false);
     }
 }
 
@@ -817,18 +946,17 @@ static void nav_dual_hold_timer(struct k_work *item) {
         CONTAINER_OF(delayable, struct nav_dual_state, hold_work);
 
     if (state->physically_pressed && state->phase == NAV_DUAL_PENDING) {
+        if (pending_nav_dual == state) {
+            pending_nav_dual = NULL;
+        }
         activate_nav_dual_hold(state);
+        release_captured_position_events();
     }
 }
 
 static void press_nav_dual_tap(struct nav_dual_state *state,
-                               struct nav_dual_state *hold_owner,
                                struct zmk_behavior_binding_event event) {
     state->phase = NAV_DUAL_TAP_DOWN;
-    state->hold_owner = hold_owner;
-    if (hold_owner != NULL) {
-        hold_owner->dependents++;
-    }
     handle_navigation(nav_dual_to_navigation(state->action), true, event);
 }
 
@@ -836,18 +964,49 @@ static void finish_nav_dual_tap(struct nav_dual_state *state,
                                 struct zmk_behavior_binding_event event) {
     handle_navigation(nav_dual_to_navigation(state->action), false, event);
     state->last_tap_released_at = k_uptime_get();
+    reset_nav_dual(state);
+}
 
-    struct nav_dual_state *owner = state->hold_owner;
-    state->hold_owner = NULL;
-    if (owner != NULL && owner->dependents > 0) {
-        owner->dependents--;
-        if (owner->release_pending && owner->dependents == 0) {
-            release_nav_dual_hold(owner);
-            reset_nav_dual(owner);
-        }
+static bool captured_event_releases_pending(void) {
+    if (pending_nav_dual == NULL || captured_position_event_count == 0) {
+        return false;
     }
 
-    reset_nav_dual(state);
+    const struct zmk_position_state_changed *ev = &captured_position_events[0].data;
+    return !ev->state && ev->position == pending_nav_dual->position;
+}
+
+static void release_captured_position_events(void) {
+    while (captured_position_event_count > 0) {
+        /* A newly replayed mod-tap press owns chronology until its release or 90 ms timeout. */
+        if (pending_nav_dual != NULL && !captured_event_releases_pending()) {
+            return;
+        }
+
+        struct zmk_position_state_changed_event event = captured_position_events[0];
+        for (uint8_t i = 1; i < captured_position_event_count; i++) {
+            captured_position_events[i - 1] = captured_position_events[i];
+        }
+        captured_position_event_count--;
+        ZMK_EVENT_RAISE_AFTER(event, adv2_mod_tap_capture);
+    }
+}
+
+static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (ev == NULL || pending_nav_dual == NULL ||
+        ev->position == pending_nav_dual->position) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    if (captured_position_event_count >= ADV2_CAPTURED_POSITION_EVENTS) {
+        LOG_ERR("QMK mod-tap capture buffer full");
+        return -ENOMEM;
+    }
+
+    captured_position_events[captured_position_event_count++] =
+        copy_raised_zmk_position_state_changed(ev);
+    return ZMK_EV_EVENT_CAPTURED;
 }
 
 static int handle_nav_dual(uint16_t action, bool pressed,
@@ -864,24 +1023,15 @@ static int handle_nav_dual(uint16_t action, bool pressed,
 
         state->action = action;
         state->position = event.position;
-        state->press_event = event;
         state->physically_pressed = true;
 
-        struct nav_dual_state *other = other_nav_dual(state);
-        if (other->physically_pressed &&
-            (other->phase == NAV_DUAL_PENDING || other->phase == NAV_DUAL_HOLDING)) {
-            k_work_cancel_delayable(&other->hold_work);
-            activate_nav_dual_hold(other);
-            press_nav_dual_tap(state, other, event);
-            return ZMK_BEHAVIOR_OPAQUE;
-        }
-
         if ((state->last_tap_released_at + NAV_DUAL_QUICK_TAP_MS) > k_uptime_get()) {
-            press_nav_dual_tap(state, NULL, event);
+            press_nav_dual_tap(state, event);
             return ZMK_BEHAVIOR_OPAQUE;
         }
 
         state->phase = NAV_DUAL_PENDING;
+        pending_nav_dual = state;
         k_work_schedule(&state->hold_work, K_MSEC(NAV_DUAL_TAPPING_TERM_MS));
         return ZMK_BEHAVIOR_OPAQUE;
     }
@@ -890,21 +1040,21 @@ static int handle_nav_dual(uint16_t action, bool pressed,
     switch (state->phase) {
     case NAV_DUAL_PENDING:
         k_work_cancel_delayable(&state->hold_work);
+        if (pending_nav_dual == state) {
+            pending_nav_dual = NULL;
+        }
         handle_navigation(nav_dual_to_navigation(state->action), true, event);
         handle_navigation(nav_dual_to_navigation(state->action), false, event);
         state->last_tap_released_at = k_uptime_get();
         reset_nav_dual(state);
+        release_captured_position_events();
         break;
     case NAV_DUAL_TAP_DOWN:
         finish_nav_dual_tap(state, event);
         break;
     case NAV_DUAL_HOLDING:
-        if (state->dependents > 0) {
-            state->release_pending = true;
-        } else {
-            release_nav_dual_hold(state);
-            reset_nav_dual(state);
-        }
+        release_nav_dual_hold(state);
+        reset_nav_dual(state);
         break;
     case NAV_DUAL_IDLE:
         break;
@@ -925,8 +1075,7 @@ static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
         return handle_navigation(action, true, event);
     }
 
-    resolve_semantic(action & ADV2_ID_MASK, (action & ADV2_HOLD_FLAG) != 0);
-    return ZMK_BEHAVIOR_OPAQUE;
+    return press_semantic_dance(action & ADV2_ID_MASK, event);
 }
 
 static int adv2_resolver_released(struct zmk_behavior_binding *binding,
@@ -941,7 +1090,7 @@ static int adv2_resolver_released(struct zmk_behavior_binding *binding,
         return handle_navigation(action, false, event);
     }
 
-    return ZMK_BEHAVIOR_OPAQUE;
+    return release_semantic_dance(action & ADV2_ID_MASK, event);
 }
 
 static const struct behavior_driver_api adv2_resolver_driver_api = {
@@ -961,6 +1110,14 @@ static int adv2_resolver_init(const struct device *dev) {
     reset_nav_dual(&nav_duals[1]);
     k_work_init_delayable(&nav_duals[0].hold_work, nav_dual_hold_timer);
     k_work_init_delayable(&nav_duals[1].hold_work, nav_dual_hold_timer);
+    pending_nav_dual = NULL;
+    captured_position_event_count = 0;
+
+    for (size_t i = 0; i < ARRAY_SIZE(semantic_dances); i++) {
+        semantic_dances[i].id = i + 1;
+        clear_semantic_dance(&semantic_dances[i]);
+        k_work_init_delayable(&semantic_dances[i].timer, semantic_dance_timer);
+    }
     return 0;
 }
 
