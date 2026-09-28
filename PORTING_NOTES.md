@@ -16,7 +16,9 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
   A released short tap is emitted immediately, while an uninterrupted key that
   is still down at 170 ms gets its hold symbol. This small scheduling adaptation
   avoids buffering rapid text over the ZMK/BLE path while preserving every
-  symbol decision and the original 170 ms hold threshold.
+  symbol decision and the original 170 ms hold threshold. Plain text outputs
+  stay pressed for one 12 ms HID report window; their releases run in parallel,
+  so fast rolls are not serialized and repeated letters remain distinct.
 - Delete/Alt, Backspace/Alt, Tab/Shift, both Esc/Cmd-or-Ctrl keys, and
   Enter/Shift share one parallel 90 ms resolver. Each key owns its timer, so
   simultaneous modifiers never accumulate serial 90 ms delays.
@@ -37,9 +39,14 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - Events waiting behind unresolved decisions retain chronological order. A
   modifier used by a delayed semantic key remains latched until that target key
   is resolved, even if the physical modifier was released slightly earlier.
+  Every concurrently active target is tracked separately, so releasing the
+  first key in a fast arrow or letter roll cannot release the modifier from the
+  keys that are still held.
 - After a completed tap, pressing the same Delete/Backspace key again within
   120 ms immediately holds its navigation key down. This reproduces the original
   tap, tap-and-hold gesture and lets the host repeat deletion continuously.
+  A single synthetic tap uses its own 12 ms pulse rather than borrowing the
+  physical hold state, keeping every key-down paired with exactly one key-up.
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before

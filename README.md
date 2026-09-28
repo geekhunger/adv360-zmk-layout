@@ -19,6 +19,8 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - 35-ms-Toleranz für knapp zu früh losgelassene Mehrfach-Modifier
 - Buchstabentaps werden beim Loslassen sofort ausgegeben; 170 ms gelten nur für Holds
 - 120-ms-Fenster für „tippen, erneut tippen und halten“ bei Delete/Backspace
+- 12-ms-HID-Pulse für verlustfreie Buchstaben und einzelne Lösch-Taps über BLE
+- mehrere parallele Modifier-Ziele für schnelle Pfeil- und Buchstaben-Rolls
 - saubere Serialisierung sich überlappender Pfeile derselben Achse
 - zusätzliche Advantage-360-Tasten auf allen Ebenen ohne Funktion
 

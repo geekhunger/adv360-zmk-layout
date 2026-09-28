@@ -49,8 +49,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOD_TAP_TAPPING_TERM_MS 90
 #define MOD_TAP_CHORD_GRACE_MS 35
 #define NAV_REPEAT_WINDOW_MS 120
+#define TAP_PULSE_MS 12
 #define ADV2_CAPTURED_POSITION_EVENTS 40
 #define ADV2_MOD_TAP_COUNT 6
+#define ADV2_TAP_PULSE_COUNT 32
 
 enum nav_state {
     NAV_IDLE,
@@ -84,7 +86,7 @@ struct mod_tap_state {
     int64_t pressed_at;
     int64_t grace_deadline;
     int64_t last_tap_released_at;
-    int32_t latch_target_position;
+    uint64_t latch_targets[2];
     enum mod_tap_phase phase;
     bool physically_pressed;
     bool chord_participant;
@@ -95,6 +97,14 @@ struct mod_tap_state {
 
 static struct mod_tap_state mod_taps[ADV2_MOD_TAP_COUNT];
 static uint8_t mod_tap_hold_counts[8];
+
+struct tap_pulse_state {
+    uint32_t keycode;
+    bool active;
+    struct k_work_delayable release_work;
+};
+
+static struct tap_pulse_state tap_pulses[ADV2_TAP_PULSE_COUNT];
 
 enum deferred_input_type {
     DEFERRED_POSITION,
@@ -146,9 +156,74 @@ static void emit_code(uint32_t keycode, bool pressed) {
     raise_zmk_keycode_state_changed_from_encoded(keycode, pressed, k_uptime_get());
 }
 
+static bool cancel_tap_pulse(uint32_t keycode) {
+    for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
+        struct tap_pulse_state *pulse = &tap_pulses[i];
+        if (pulse->keycode != keycode || !pulse->active) {
+            continue;
+        }
+
+        k_work_cancel_delayable(&pulse->release_work);
+        pulse->active = false;
+        emit_code(keycode, false);
+        return true;
+    }
+    return false;
+}
+
 static void tap_code(uint32_t keycode) {
+    cancel_tap_pulse(keycode);
     emit_code(keycode, true);
     emit_code(keycode, false);
+}
+
+static void tap_pulse_release(struct k_work *item) {
+    struct k_work_delayable *delayable = k_work_delayable_from_work(item);
+    struct tap_pulse_state *pulse =
+        CONTAINER_OF(delayable, struct tap_pulse_state, release_work);
+
+    if (!pulse->active) {
+        return;
+    }
+
+    pulse->active = false;
+    emit_code(pulse->keycode, false);
+}
+
+/*
+ * BLE can merge an immediate synthetic press/release into an unusably short
+ * host pulse. Keep plain text and navigation taps down across a report window.
+ * Each key owns its worker, so rolls between different letters remain parallel.
+ */
+static void pulse_code(uint32_t keycode) {
+    struct tap_pulse_state *free_slot = NULL;
+    struct tap_pulse_state *pulse = NULL;
+
+    for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
+        if (tap_pulses[i].keycode == keycode) {
+            pulse = &tap_pulses[i];
+            break;
+        }
+        if (tap_pulses[i].keycode == 0 && free_slot == NULL) {
+            free_slot = &tap_pulses[i];
+        }
+    }
+
+    if (pulse == NULL) {
+        pulse = free_slot;
+    }
+    if (pulse == NULL) {
+        LOG_ERR("No free synthetic tap pulse for keycode 0x%x", keycode);
+        tap_code(keycode);
+        return;
+    }
+
+    cancel_tap_pulse(keycode);
+
+    pulse->keycode = keycode;
+    pulse->active = true;
+    emit_code(keycode, true);
+    k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
 }
 
 /* QMK's without_mods(): release selected real modifiers, then restore them. */
@@ -255,7 +330,7 @@ static void pass_key(uint16_t id, uint8_t count) {
     }
 
     for (uint8_t i = 0; keycode != 0 && i < count; i++) {
-        tap_code(keycode);
+        pulse_code(keycode);
     }
 }
 
@@ -919,6 +994,8 @@ static int handle_navigation(uint16_t action, bool pressed,
             return -EINVAL;
         }
 
+        cancel_tap_pulse(keycode);
+
         struct nav_axis_state *axis = nav_axis(action);
         if (axis != NULL && axis->position >= 0 && axis->position != event.position) {
             if (axis->position < ADV2_MAX_POSITIONS &&
@@ -992,7 +1069,8 @@ static void reset_mod_tap(struct mod_tap_state *state) {
     state->hold_keycode = 0;
     state->pressed_at = 0;
     state->grace_deadline = 0;
-    state->latch_target_position = -1;
+    state->latch_targets[0] = 0;
+    state->latch_targets[1] = 0;
     state->chord_participant = false;
 }
 
@@ -1186,10 +1264,39 @@ static bool released_grace_active(void) {
     return false;
 }
 
+static bool valid_latch_target(int32_t position) {
+    return position >= 0 && position < ADV2_MAX_POSITIONS;
+}
+
+static bool mod_tap_has_latch_target(const struct mod_tap_state *state,
+                                     int32_t position) {
+    if (!valid_latch_target(position)) {
+        return false;
+    }
+    return (state->latch_targets[position / 64] & (1ULL << (position % 64))) != 0;
+}
+
+static bool mod_tap_has_latch_targets(const struct mod_tap_state *state) {
+    return state->latch_targets[0] != 0 || state->latch_targets[1] != 0;
+}
+
+static void add_mod_tap_latch_target(struct mod_tap_state *state,
+                                     int32_t position) {
+    if (valid_latch_target(position)) {
+        state->latch_targets[position / 64] |= 1ULL << (position % 64);
+    }
+}
+
+static void remove_mod_tap_latch_target(struct mod_tap_state *state,
+                                        int32_t position) {
+    if (valid_latch_target(position)) {
+        state->latch_targets[position / 64] &= ~(1ULL << (position % 64));
+    }
+}
+
 static bool latched_mod_tap_targets(int32_t position) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
-        if (mod_taps[i].phase == MOD_TAP_LATCHED &&
-            mod_taps[i].latch_target_position == position) {
+        if (mod_tap_has_latch_target(&mod_taps[i], position)) {
             return true;
         }
     }
@@ -1199,11 +1306,15 @@ static bool latched_mod_tap_targets(int32_t position) {
 static void release_latched_mod_taps(int32_t position) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
         struct mod_tap_state *state = &mod_taps[i];
-        if (state->phase != MOD_TAP_LATCHED ||
-            state->latch_target_position != position) {
+        if (!mod_tap_has_latch_target(state, position)) {
             continue;
         }
-        state->latch_target_position = -1;
+
+        remove_mod_tap_latch_target(state, position);
+        if (mod_tap_has_latch_targets(state)) {
+            continue;
+        }
+
         if (state->physically_pressed) {
             state->phase = MOD_TAP_HOLDING;
         } else {
@@ -1219,8 +1330,11 @@ static void latch_active_mod_tap_holds(int32_t target_position) {
         if (state->phase != MOD_TAP_HOLDING) {
             continue;
         }
-        state->phase = MOD_TAP_LATCHED;
-        state->latch_target_position = target_position;
+
+        add_mod_tap_latch_target(state, target_position);
+        if (!state->physically_pressed) {
+            state->phase = MOD_TAP_LATCHED;
+        }
     }
 }
 
@@ -1307,10 +1421,13 @@ static void resolve_expired_mod_taps(int64_t now) {
 }
 
 static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event) {
+    ARG_UNUSED(event);
+
     uint16_t navigation = mod_tap_to_navigation(action);
     if (navigation != 0) {
-        handle_navigation(navigation, true, event);
-        handle_navigation(navigation, false, event);
+        if (!resolve_windows_navigation(navigation)) {
+            pulse_code(nav_keycode(navigation));
+        }
     } else {
         uint32_t keycode = mod_tap_tap_keycode(action);
         if (keycode != 0) {
@@ -1373,9 +1490,10 @@ static void resolve_grace_mod_tap(struct mod_tap_state *state) {
 }
 
 static void release_deferred_input_events(void) {
-    const int32_t active_position = latest_deferred_active_position();
-    if (active_position >= 0) {
-        latch_active_mod_tap_holds(active_position);
+    for (int32_t position = 0; position < ADV2_MAX_POSITIONS; position++) {
+        if (deferred_position_is_active(position)) {
+            latch_active_mod_tap_holds(position);
+        }
     }
 
     while (deferred_input_event_count > 0 && unresolved_mod_tap_count() == 0) {
@@ -1534,8 +1652,12 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         reset_mod_tap(state);
         break;
     case MOD_TAP_HOLDING:
-        release_mod_tap_hold(state);
-        reset_mod_tap(state);
+        if (mod_tap_has_latch_targets(state)) {
+            state->phase = MOD_TAP_LATCHED;
+        } else {
+            release_mod_tap_hold(state);
+            reset_mod_tap(state);
+        }
         break;
     case MOD_TAP_RELEASED_GRACE:
     case MOD_TAP_LATCHED:
@@ -1600,6 +1722,11 @@ static int adv2_resolver_init(const struct device *dev) {
     }
     for (size_t i = 0; i < ARRAY_SIZE(mod_tap_hold_counts); i++) {
         mod_tap_hold_counts[i] = 0;
+    }
+    for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
+        tap_pulses[i].keycode = 0;
+        tap_pulses[i].active = false;
+        k_work_init_delayable(&tap_pulses[i].release_work, tap_pulse_release);
     }
     deferred_input_event_count = 0;
     horizontal_axis.position = -1;

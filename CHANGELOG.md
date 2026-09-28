@@ -5,6 +5,15 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.2
+
+- Keep ordinary semantic letters and single Delete/Backspace taps down for one
+  12 ms HID report window instead of emitting zero-duration synthetic taps.
+- Track every concurrently active target of a held modifier, preserving the
+  modifier through fast overlapping arrow and letter rolls.
+- Separate synthetic Delete/Backspace taps from the held navigation state to
+  prevent unmatched releases after rapid correction sequences.
+
 ### v0.2.1
 
 - Resolve overlapping dual-role/action rolls by release order instead of waiting
