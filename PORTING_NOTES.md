@@ -73,6 +73,13 @@ interval, or peripheral latency.
   If the same key is pressed again during the 12 ms post-release grace, the
   preceding tap resolves immediately and the new press starts normally instead
   of being discarded.
+- A Delete/Backspace press that crosses the 90 ms hold threshold but is released
+  without any following physical key retro-taps its navigation action. This
+  prevents wireless split delay or a deliberately slow correction tap from
+  becoming an unused Alt press. A following key marks the hold as used, so real
+  Alt chords retain the original 90 ms behavior. Modifiers that were already
+  held before Delete/Backspace do not suppress the retro-tap, preserving
+  Cmd+Backspace and Alt+Backspace.
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before

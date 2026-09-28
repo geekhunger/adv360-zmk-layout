@@ -91,6 +91,7 @@ struct mod_tap_state {
     enum mod_tap_phase phase;
     bool physically_pressed;
     bool chord_participant;
+    bool interrupted;
     bool hold_active;
     uint32_t hold_keycode;
     struct k_work_delayable hold_work;
@@ -1137,6 +1138,7 @@ static void reset_mod_tap(struct mod_tap_state *state) {
     state->latch_targets[0] = 0;
     state->latch_targets[1] = 0;
     state->chord_participant = false;
+    state->interrupted = false;
 }
 
 static uint8_t *mod_tap_hold_counter(uint32_t keycode) {
@@ -1606,6 +1608,24 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
         return ZMK_EV_EVENT_BUBBLE;
     }
 
+    if (ev->state) {
+        /*
+         * A timed-out Delete/Backspace hold is only a modifier once another
+         * physical key uses it.  Without this marker, a slightly slow solitary
+         * tap turns into Alt and appears to have been swallowed.  Existing
+         * modifiers do not count as an interruption: Cmd+Backspace and
+         * Alt+Backspace must still fall back to the navigation tap on release.
+         */
+        for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+            struct mod_tap_state *state = &mod_taps[i];
+            if (state->position != ev->position &&
+                state->physically_pressed &&
+                mod_tap_is_navigation(state->action)) {
+                state->interrupted = true;
+            }
+        }
+    }
+
     resolve_expired_mod_taps(k_uptime_get());
     const bool mod_tap_position = is_mod_tap_position(ev->position);
 
@@ -1735,6 +1755,17 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     case MOD_TAP_HOLDING:
         if (mod_tap_has_latch_targets(state)) {
             state->phase = MOD_TAP_LATCHED;
+        } else if (mod_tap_is_navigation(state->action) && !state->interrupted) {
+            /*
+             * Retro-tap only the two Alt/navigation keys.  The 90 ms hold
+             * decision may have fired while a split release was in flight;
+             * an otherwise unused hold must remain a Delete/Backspace tap.
+             */
+            const uint16_t tap_action = state->action;
+            release_mod_tap_hold(state);
+            state->last_tap_released_at = k_uptime_get();
+            reset_mod_tap(state);
+            tap_mod_tap(tap_action, event);
         } else {
             release_mod_tap_hold(state);
             reset_mod_tap(state);

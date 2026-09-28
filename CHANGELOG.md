@@ -5,6 +5,14 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.8
+
+- Treat a timed-out Delete/Backspace hold as Alt only after a following
+  physical key actually uses it. If the key is released by itself, emit its
+  Delete/Backspace tap instead of silently producing an unused Alt press.
+- Preserve the 90 ms modifier term, the 120 ms tap-tap-hold window, existing
+  modifier chords, letter/Space behavior, arrow behavior, and split transport.
+
 ### v0.2.7
 
 - Keep the ordered, backpressured split pipeline that fixed Space ordering in
