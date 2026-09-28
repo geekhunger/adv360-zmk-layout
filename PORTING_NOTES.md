@@ -12,10 +12,12 @@ already removed those snapshots from its queue. The same upstream path can
 also block right-half matrix processing for up to 100 ms when its queue fills.
 
 `patches/zmk-split-notify-backpressure.patch` is applied by both GitHub Actions
-build jobs after `west update`. It permits one outstanding position
-notification, advances the queue from the completion callback, retries
-temporary TX backpressure, and makes the full-queue fallback non-blocking. It
-does not change the keymap, resolver semantics, tapping terms, BLE connection
+build jobs after `west update`. It permits a small bounded window of two
+outstanding position notifications, advances the queue from completion
+callbacks, retries temporary TX backpressure, and makes the full-queue fallback
+non-blocking. The right build has three Bluetooth TX contexts, leaving one
+outside the position window for other traffic. The patch does not change the
+keymap, Space behavior, resolver semantics, tapping terms, BLE connection
 interval, or peripheral latency.
 
 ## Preserved intentionally

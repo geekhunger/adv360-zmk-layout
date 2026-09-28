@@ -1,5 +1,5 @@
 diff --git a/app/src/split/bluetooth/service.c b/app/src/split/bluetooth/service.c
-index 2501f5f..be00f9a 100644
+index 2501f5f..c18a692 100644
 --- a/app/src/split/bluetooth/service.c
 +++ b/app/src/split/bluetooth/service.c
 @@ -320,31 +320,94 @@ K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZ
@@ -7,14 +7,16 @@ index 2501f5f..be00f9a 100644
  struct k_work_q service_work_q;
  
 +/*
-+ * Keep exactly one position notification in flight. The upstream worker drains
++ * Keep a small position-notification window in flight. The upstream worker drains
 + * the entire snapshot queue into bt_gatt_notify(); once the Bluetooth TX pool
 + * is full, later snapshots fail with -ENOMEM and are silently discarded. On a
 + * fast split keyboard that appears as missing keys, delayed Backspace, and a
 + * burst of old input after the transport catches up.
 + */
++#define POSITION_NOTIFICATION_WINDOW 2
++
 +static struct k_work_delayable service_position_notify_work;
-+static atomic_t position_notification_in_flight;
++static atomic_t position_notifications_in_flight;
 +
  K_MSGQ_DEFINE(position_state_msgq, sizeof(char[POS_STATE_LEN]),
                CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_POSITION_QUEUE_SIZE, 4);
@@ -27,60 +29,58 @@ index 2501f5f..be00f9a 100644
 +    ARG_UNUSED(conn);
 +    ARG_UNUSED(user_data);
 +
-+    atomic_clear(&position_notification_in_flight);
++    atomic_dec(&position_notifications_in_flight);
 +    schedule_position_notification(K_NO_WAIT);
 +}
 +
  void send_position_state_callback(struct k_work *work) {
+-    uint8_t state[POS_STATE_LEN];
 +    ARG_UNUSED(work);
-+
-+    if (!atomic_cas(&position_notification_in_flight, 0, 1)) {
-+        return;
-+    }
-+
-     uint8_t state[POS_STATE_LEN];
-+    int err = k_msgq_peek(&position_state_msgq, &state);
-+    if (err) {
-+        atomic_clear(&position_notification_in_flight);
-+        return;
-+    }
  
 -    while (k_msgq_get(&position_state_msgq, &state, K_NO_WAIT) == 0) {
 -        int err = bt_gatt_notify(NULL, &split_svc.attrs[1], &state, sizeof(state));
--        if (err) {
++    while (atomic_get(&position_notifications_in_flight) < POSITION_NOTIFICATION_WINDOW) {
++        uint8_t state[POS_STATE_LEN];
++        int err = k_msgq_peek(&position_state_msgq, &state);
+         if (err) {
 -            LOG_DBG("Error notifying %d", err);
--        }
-+    struct bt_gatt_notify_params params = {
-+        .attr = &split_svc.attrs[1],
-+        .data = state,
-+        .len = sizeof(state),
-+        .func = position_notification_complete,
-+    };
++            return;
++        }
 +
-+    err = bt_gatt_notify_cb(NULL, &params);
-+    if (err == 0) {
-+        /* bt_gatt_notify_cb() copied the value into its TX buffer. */
-+        k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+        return;
-     }
++        atomic_inc(&position_notifications_in_flight);
++
++        struct bt_gatt_notify_params params = {
++            .attr = &split_svc.attrs[1],
++            .data = state,
++            .len = sizeof(state),
++            .func = position_notification_complete,
++        };
++
++        err = bt_gatt_notify_cb(NULL, &params);
++        if (err == 0) {
++            /* bt_gatt_notify_cb() copied the value into its TX buffer. */
++            k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
++            continue;
+         }
+-    }
 -};
  
 -K_WORK_DEFINE(service_position_notify_work, send_position_state_callback);
-+    atomic_clear(&position_notification_in_flight);
++        atomic_dec(&position_notifications_in_flight);
 +
-+    if (err == -ENOMEM || err == -EAGAIN) {
-+        /* Preserve the head snapshot and retry after Bluetooth frees a buffer. */
-+        LOG_DBG("Position notification backpressured (%d), retrying", err);
-+        schedule_position_notification(K_MSEC(1));
-+        return;
++        if (err == -ENOMEM || err == -EAGAIN) {
++            /* Preserve the head snapshot and retry after Bluetooth frees a buffer. */
++            LOG_DBG("Position notification backpressured (%d), retrying", err);
++            schedule_position_notification(K_MSEC(1));
++            return;
++        }
++
++        /* Match the old disconnected/unsubscribed behavior: do not replay stale
++         * input after reconnect, but continue with any newer snapshot.
++         */
++        LOG_WRN("Position notification failed (%d), discarding snapshot", err);
++        k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
 +    }
-+
-+    /* Match the old disconnected/unsubscribed behavior: do not replay stale
-+     * input after reconnect, but continue with any newer snapshot.
-+     */
-+    LOG_WRN("Position notification failed (%d), discarding snapshot", err);
-+    k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+    schedule_position_notification(K_NO_WAIT);
 +}
  
  int send_position_state() {
@@ -120,7 +120,7 @@ index 2501f5f..be00f9a 100644
  static int service_init(void) {
      static const struct k_work_queue_config queue_config = {
          .name = "Split Peripheral Notification Queue"};
-+    atomic_clear(&position_notification_in_flight);
++    atomic_clear(&position_notifications_in_flight);
 +    k_work_init_delayable(&service_position_notify_work, send_position_state_callback);
      k_work_queue_start(&service_work_q, service_q_stack, K_THREAD_STACK_SIZEOF(service_q_stack),
                         CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_PRIORITY, &queue_config);

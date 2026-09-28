@@ -5,6 +5,15 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.7
+
+- Keep the ordered, backpressured split pipeline that fixed Space ordering in
+  v0.2.6, but allow two right-to-left notifications in flight instead of one.
+- Match the right half's three compiled Bluetooth TX contexts while leaving one
+  context free for non-position traffic.
+- Keep the layout, Space behavior, resolver, all timing values, queue sizes,
+  and BLE connection parameters unchanged.
+
 ### v0.2.6
 
 - Serialize right-to-left position notifications so the Bluetooth TX pool is
