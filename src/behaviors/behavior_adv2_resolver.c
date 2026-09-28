@@ -47,6 +47,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define ADV2_SEMANTIC_COUNT ADV2_SLASH
 #define SEMANTIC_TAPPING_TERM_MS 170
 #define MOD_TAP_TAPPING_TERM_MS 90
+#define MOD_TAP_CHORD_GRACE_MS 35
 #define NAV_REPEAT_WINDOW_MS 120
 #define ADV2_CAPTURED_POSITION_EVENTS 40
 #define ADV2_MOD_TAP_COUNT 6
@@ -71,7 +72,9 @@ static struct nav_axis_state vertical_axis = {.position = -1};
 enum mod_tap_phase {
     MOD_TAP_IDLE,
     MOD_TAP_PENDING,
+    MOD_TAP_RELEASED_GRACE,
     MOD_TAP_HOLDING,
+    MOD_TAP_LATCHED,
     MOD_TAP_REPEAT_DOWN,
 };
 
@@ -79,9 +82,12 @@ struct mod_tap_state {
     uint16_t action;
     int32_t position;
     int64_t pressed_at;
+    int64_t grace_deadline;
     int64_t last_tap_released_at;
+    int32_t latch_target_position;
     enum mod_tap_phase phase;
     bool physically_pressed;
+    bool chord_participant;
     bool hold_active;
     uint32_t hold_keycode;
     struct k_work_delayable hold_work;
@@ -985,6 +991,9 @@ static void reset_mod_tap(struct mod_tap_state *state) {
     state->hold_active = false;
     state->hold_keycode = 0;
     state->pressed_at = 0;
+    state->grace_deadline = 0;
+    state->latch_target_position = -1;
+    state->chord_participant = false;
 }
 
 static uint8_t *mod_tap_hold_counter(uint32_t keycode) {
@@ -997,6 +1006,7 @@ static uint8_t *mod_tap_hold_counter(uint32_t keycode) {
 }
 
 static void release_deferred_input_events(void);
+static void resolve_grace_mod_tap(struct mod_tap_state *state);
 
 static void queue_mod_tap_marker(struct mod_tap_state *state,
                                  struct zmk_behavior_binding_event event) {
@@ -1055,14 +1065,63 @@ static uint32_t mod_tap_tap_keycode(uint16_t action) {
     }
 }
 
-static uint8_t pending_mod_tap_count(void) {
+static bool mod_tap_is_unresolved(const struct mod_tap_state *state) {
+    return state->phase == MOD_TAP_PENDING || state->phase == MOD_TAP_RELEASED_GRACE;
+}
+
+static uint8_t unresolved_mod_tap_count(void) {
     uint8_t count = 0;
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
-        if (mod_taps[i].phase == MOD_TAP_PENDING) {
+        if (mod_tap_is_unresolved(&mod_taps[i])) {
             count++;
         }
     }
     return count;
+}
+
+static bool deferred_position_is_active(int32_t position) {
+    bool active = false;
+
+    for (uint8_t i = 0; i < deferred_input_event_count; i++) {
+        if (deferred_input_events[i].type != DEFERRED_POSITION ||
+            deferred_input_events[i].position_event.data.position != position) {
+            continue;
+        }
+        active = deferred_input_events[i].position_event.data.state;
+    }
+
+    return active;
+}
+
+static int32_t latest_deferred_active_position(void) {
+    bool active[ADV2_MAX_POSITIONS] = {false};
+    uint8_t pressed_order[ADV2_MAX_POSITIONS] = {0};
+
+    for (uint8_t i = 0; i < deferred_input_event_count; i++) {
+        if (deferred_input_events[i].type != DEFERRED_POSITION) {
+            continue;
+        }
+
+        const struct zmk_position_state_changed *position_event =
+            &deferred_input_events[i].position_event.data;
+        if (position_event->position >= ADV2_MAX_POSITIONS) {
+            continue;
+        }
+        active[position_event->position] = position_event->state;
+        if (position_event->state) {
+            pressed_order[position_event->position] = i + 1;
+        }
+    }
+
+    int32_t latest_position = -1;
+    uint8_t latest_order = 0;
+    for (int32_t position = 0; position < ADV2_MAX_POSITIONS; position++) {
+        if (active[position] && pressed_order[position] >= latest_order) {
+            latest_position = position;
+            latest_order = pressed_order[position];
+        }
+    }
+    return latest_position;
 }
 
 static void activate_mod_tap_hold(struct mod_tap_state *state) {
@@ -1101,6 +1160,118 @@ static void release_mod_tap_hold(struct mod_tap_state *state) {
     }
 }
 
+static void mark_mod_tap_chord(struct mod_tap_state *state) {
+    bool overlap = has_any(zmk_hid_get_explicit_mods(), MOD_ALL);
+
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *other = &mod_taps[i];
+        if (other == state || other->phase == MOD_TAP_IDLE ||
+            other->phase == MOD_TAP_REPEAT_DOWN) {
+            continue;
+        }
+
+        other->chord_participant = true;
+        overlap = true;
+    }
+
+    state->chord_participant = overlap;
+}
+
+static bool released_grace_active(void) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].phase == MOD_TAP_RELEASED_GRACE) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool latched_mod_tap_targets(int32_t position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].phase == MOD_TAP_LATCHED &&
+            mod_taps[i].latch_target_position == position) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void release_latched_mod_taps(int32_t position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *state = &mod_taps[i];
+        if (state->phase != MOD_TAP_LATCHED ||
+            state->latch_target_position != position) {
+            continue;
+        }
+        state->latch_target_position = -1;
+        if (state->physically_pressed) {
+            state->phase = MOD_TAP_HOLDING;
+        } else {
+            release_mod_tap_hold(state);
+            reset_mod_tap(state);
+        }
+    }
+}
+
+static void latch_active_mod_tap_holds(int32_t target_position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *state = &mod_taps[i];
+        if (state->phase != MOD_TAP_HOLDING) {
+            continue;
+        }
+        state->phase = MOD_TAP_LATCHED;
+        state->latch_target_position = target_position;
+    }
+}
+
+static void promote_unresolved_for_live_action(int32_t target_position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *state = &mod_taps[i];
+        if (!mod_tap_is_unresolved(state)) {
+            continue;
+        }
+
+        k_work_cancel_delayable(&state->hold_work);
+        activate_mod_tap_hold(state);
+    }
+
+    latch_active_mod_tap_holds(target_position);
+
+    if (unresolved_mod_tap_count() == 0) {
+        release_deferred_input_events();
+    }
+}
+
+static void promote_unresolved_for_completed_action(int32_t target_position) {
+    struct mod_tap_state *synthetic_holds[ADV2_MOD_TAP_COUNT];
+    uint8_t synthetic_hold_count = 0;
+
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *state = &mod_taps[i];
+        if (!mod_tap_is_unresolved(state)) {
+            continue;
+        }
+
+        const bool was_released = state->phase == MOD_TAP_RELEASED_GRACE;
+        k_work_cancel_delayable(&state->hold_work);
+        activate_mod_tap_hold(state);
+        if (was_released && state->phase == MOD_TAP_HOLDING) {
+            synthetic_holds[synthetic_hold_count++] = state;
+        }
+    }
+
+    if (unresolved_mod_tap_count() == 0) {
+        release_deferred_input_events();
+    }
+
+    release_latched_mod_taps(target_position);
+
+    for (uint8_t i = 0; i < synthetic_hold_count; i++) {
+        release_mod_tap_hold(synthetic_holds[i]);
+        reset_mod_tap(synthetic_holds[i]);
+    }
+}
+
 static void mod_tap_hold_timer(struct k_work *item) {
     struct k_work_delayable *delayable = k_work_delayable_from_work(item);
     struct mod_tap_state *state =
@@ -1108,9 +1279,11 @@ static void mod_tap_hold_timer(struct k_work *item) {
 
     if (state->physically_pressed && state->phase == MOD_TAP_PENDING) {
         activate_mod_tap_hold(state);
-        if (pending_mod_tap_count() == 0) {
+        if (unresolved_mod_tap_count() == 0) {
             release_deferred_input_events();
         }
+    } else if (state->phase == MOD_TAP_RELEASED_GRACE) {
+        resolve_grace_mod_tap(state);
     }
 }
 
@@ -1121,10 +1294,14 @@ static void resolve_expired_mod_taps(int64_t now) {
             now - state->pressed_at >= MOD_TAP_TAPPING_TERM_MS) {
             k_work_cancel_delayable(&state->hold_work);
             activate_mod_tap_hold(state);
+        } else if (state->phase == MOD_TAP_RELEASED_GRACE &&
+                   now >= state->grace_deadline) {
+            k_work_cancel_delayable(&state->hold_work);
+            resolve_grace_mod_tap(state);
         }
     }
 
-    if (pending_mod_tap_count() == 0) {
+    if (unresolved_mod_tap_count() == 0) {
         release_deferred_input_events();
     }
 }
@@ -1152,8 +1329,56 @@ static bool resolve_mod_tap_marker_as_tap(struct mod_tap_state *state) {
     return true;
 }
 
+static void resolve_grace_mod_tap(struct mod_tap_state *state) {
+    if (state->phase != MOD_TAP_RELEASED_GRACE) {
+        return;
+    }
+
+    struct mod_tap_state *synthetic_holds[ADV2_MOD_TAP_COUNT];
+    uint8_t synthetic_hold_count = 0;
+    const uint16_t tap_action = state->action;
+    const struct zmk_behavior_binding_event tap_event = {
+        .position = state->position,
+        .timestamp = state->grace_deadline - MOD_TAP_CHORD_GRACE_MS,
+    };
+    const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
+
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *other = &mod_taps[i];
+        if (other == state || !mod_tap_is_unresolved(other)) {
+            continue;
+        }
+
+        const bool was_released = other->phase == MOD_TAP_RELEASED_GRACE;
+        k_work_cancel_delayable(&other->hold_work);
+        activate_mod_tap_hold(other);
+        if (was_released && other->phase == MOD_TAP_HOLDING) {
+            synthetic_holds[synthetic_hold_count++] = other;
+        }
+    }
+
+    state->last_tap_released_at = state->grace_deadline - MOD_TAP_CHORD_GRACE_MS;
+    reset_mod_tap(state);
+
+    if (tap_queued) {
+        release_deferred_input_events();
+    } else {
+        tap_mod_tap(tap_action, tap_event);
+    }
+
+    for (uint8_t i = 0; i < synthetic_hold_count; i++) {
+        release_mod_tap_hold(synthetic_holds[i]);
+        reset_mod_tap(synthetic_holds[i]);
+    }
+}
+
 static void release_deferred_input_events(void) {
-    while (deferred_input_event_count > 0 && pending_mod_tap_count() == 0) {
+    const int32_t active_position = latest_deferred_active_position();
+    if (active_position >= 0) {
+        latch_active_mod_tap_holds(active_position);
+    }
+
+    while (deferred_input_event_count > 0 && unresolved_mod_tap_count() == 0) {
         struct deferred_input_event event = deferred_input_events[0];
         for (uint8_t i = 1; i < deferred_input_event_count; i++) {
             deferred_input_events[i - 1] = deferred_input_events[i];
@@ -1170,17 +1395,11 @@ static void release_deferred_input_events(void) {
     }
 }
 
-static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
-    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
-    if (ev == NULL) {
-        return ZMK_EV_EVENT_BUBBLE;
-    }
+static bool eager_action_position(int32_t position) {
+    return position >= 71 && position <= 74;
+}
 
-    resolve_expired_mod_taps(k_uptime_get());
-    if (pending_mod_tap_count() == 0 || is_mod_tap_position(ev->position)) {
-        return ZMK_EV_EVENT_BUBBLE;
-    }
-
+static int defer_position_event(const struct zmk_position_state_changed *event) {
     if (deferred_input_event_count >= ADV2_CAPTURED_POSITION_EVENTS) {
         LOG_ERR("QMK mod-tap capture buffer full");
         return -ENOMEM;
@@ -1189,8 +1408,61 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
     struct deferred_input_event *deferred =
         &deferred_input_events[deferred_input_event_count++];
     deferred->type = DEFERRED_POSITION;
-    deferred->position_event = copy_raised_zmk_position_state_changed(ev);
-    return ZMK_EV_EVENT_CAPTURED;
+    deferred->position_event = copy_raised_zmk_position_state_changed(event);
+    return 0;
+}
+
+static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (ev == NULL) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    resolve_expired_mod_taps(k_uptime_get());
+    const bool mod_tap_position = is_mod_tap_position(ev->position);
+
+    if (!ev->state && !mod_tap_position && latched_mod_tap_targets(ev->position) &&
+        !deferred_position_is_active(ev->position)) {
+        struct zmk_position_state_changed_event released_event =
+            copy_raised_zmk_position_state_changed(ev);
+        int result = ZMK_EVENT_RAISE_AFTER(released_event, adv2_mod_tap_capture);
+        release_latched_mod_taps(ev->position);
+        return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
+    }
+
+    if (mod_tap_position) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    if (ev->state) {
+        if (released_grace_active() ||
+            (eager_action_position(ev->position) && unresolved_mod_tap_count() > 0)) {
+            promote_unresolved_for_live_action(ev->position);
+            return ZMK_EV_EVENT_BUBBLE;
+        }
+
+        if (unresolved_mod_tap_count() > 0) {
+            latch_active_mod_tap_holds(ev->position);
+            int result = defer_position_event(ev);
+            return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
+        }
+        latch_active_mod_tap_holds(ev->position);
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    if (unresolved_mod_tap_count() > 0) {
+        const bool completes_action = deferred_position_is_active(ev->position);
+        int result = defer_position_event(ev);
+        if (result < 0) {
+            return result;
+        }
+        if (completes_action) {
+            promote_unresolved_for_completed_action(ev->position);
+        }
+        return ZMK_EV_EVENT_CAPTURED;
+    }
+
+    return ZMK_EV_EVENT_BUBBLE;
 }
 
 static int handle_mod_tap(uint16_t action, bool pressed,
@@ -1206,9 +1478,10 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         }
 
         const int64_t now = k_uptime_get();
+        mark_mod_tap_chord(state);
         state->physically_pressed = true;
 
-        if (mod_tap_is_navigation(action) && pending_mod_tap_count() == 0 &&
+        if (mod_tap_is_navigation(action) && unresolved_mod_tap_count() == 0 &&
             deferred_input_event_count == 0 &&
             now - state->last_tap_released_at <= NAV_REPEAT_WINDOW_MS) {
             state->phase = MOD_TAP_REPEAT_DOWN;
@@ -1227,6 +1500,21 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     switch (state->phase) {
     case MOD_TAP_PENDING: {
         k_work_cancel_delayable(&state->hold_work);
+
+        if (state->chord_participant) {
+            state->phase = MOD_TAP_RELEASED_GRACE;
+            state->grace_deadline = k_uptime_get() + MOD_TAP_CHORD_GRACE_MS;
+
+            const int32_t active_position = latest_deferred_active_position();
+            if (active_position >= 0) {
+                promote_unresolved_for_live_action(active_position);
+            } else {
+                k_work_reschedule(&state->hold_work,
+                                  K_MSEC(MOD_TAP_CHORD_GRACE_MS));
+            }
+            break;
+        }
+
         const uint16_t tap_action = state->action;
         const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
         state->last_tap_released_at = k_uptime_get();
@@ -1235,7 +1523,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         if (!tap_queued) {
             tap_mod_tap(tap_action, event);
         }
-        if (pending_mod_tap_count() == 0) {
+        if (unresolved_mod_tap_count() == 0) {
             release_deferred_input_events();
         }
         break;
@@ -1249,6 +1537,8 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         release_mod_tap_hold(state);
         reset_mod_tap(state);
         break;
+    case MOD_TAP_RELEASED_GRACE:
+    case MOD_TAP_LATCHED:
     case MOD_TAP_IDLE:
         break;
     }

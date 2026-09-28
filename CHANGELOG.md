@@ -5,6 +5,14 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.1
+
+- Resolve overlapping dual-role/action rolls by release order instead of waiting
+  blindly for the 90 ms timeout.
+- Add a 35 ms grace window for already detected multi-modifier chords.
+- Latch resolved modifiers through delayed semantic-key output and held arrows.
+- Keep plain letter rolls and solitary dual-role taps outside the grace window.
+
 ### v0.2.0
 
 - Resolve short letter taps immediately on release; retain 170 ms for hold symbols.

@@ -21,9 +21,22 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
   Enter/Shift share one parallel 90 ms resolver. Each key owns its timer, so
   simultaneous modifiers never accumulate serial 90 ms delays.
 - Tap versus modifier is never inferred from keyboard side, opposite-hand use,
-  already-held modifiers, or another key press. A modifier is emitted only once
-  its own 90 ms threshold expires. Events waiting behind simultaneous unresolved
-  keys retain chronological order and are released when all decisions are made.
+  or a fixed hand rule. Overlapping action keys use balanced release order: when
+  the dual-role key is released first it remains a tap, while an action completed
+  first promotes the still-held dual-role key to its modifier. This preserves
+  fast Backspace-to-letter, Enter-to-letter, and ordinary text rolls without
+  making quick Alt/Shift/Cmd chords wait for the full 90 ms.
+- Arrow presses are decisive live actions and promote pending modifiers on key
+  down so selection and navigation remain responsive while held.
+- In an already detected multi-modifier chord, a released candidate remains
+  latched for 35 ms. A following action can therefore still receive Cmd/Shift/
+  Alt/Ctrl when natural finger release order differs by only a few milliseconds.
+- Releasing a dual-role target inside a chord promotes the older candidates and
+  taps the target. This explicitly covers Cmd+Delete, Alt+Cmd+Esc, Shift+Tab,
+  and arbitrary combinations of the same six physical dual-role positions.
+- Events waiting behind unresolved decisions retain chronological order. A
+  modifier used by a delayed semantic key remains latched until that target key
+  is resolved, even if the physical modifier was released slightly earlier.
 - After a completed tap, pressing the same Delete/Backspace key again within
   120 ms immediately holds its navigation key down. This reproduces the original
   tap, tap-and-hold gesture and lets the host repeat deletion continuously.
@@ -56,7 +69,8 @@ inspect arbitrary combinations of Shift, Alt, Ctrl, and GUI, temporarily
 suppress selected modifiers, select an OS-specific sequence, and remap
 Windows navigation. The resolver implements that compatibility logic, the
 release-driven semantic letter handling, the parallel 90 ms modifier state
-machine, Delete/Backspace repeat gesture, and arrow serialization.
+machine with balanced rolls and chord grace, Delete/Backspace repeat gesture,
+and arrow serialization.
 
 Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
 power management, and the Advantage 360 board definition remain Kinesis ZMK.
