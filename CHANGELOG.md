@@ -5,6 +5,17 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.4
+
+- Preserve QMK `state->count` for modifier-aware repeatable outputs, including
+  repeated `Alt + .` → `!`, instead of emitting only the first symbol.
+- Resolve a preceding Delete/Backspace tap immediately when the same physical
+  key is pressed again during the 12 ms chord grace, rather than dropping the
+  new press.
+- Extend a released-but-latched modifier to the next overlapping target during
+  arrow rollover, so Alt remains active while rapidly switching directions.
+- Keep all 90/170/120/12 ms timing values unchanged.
+
 ### v0.2.3
 
 - Restore QMK tap-dance counting for semantic letters: equal consecutive taps

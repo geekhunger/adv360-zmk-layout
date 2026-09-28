@@ -19,7 +19,9 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
   a delayed dance even when its dual-role modifier is released slightly early.
   Plain text outputs stay pressed for one 12 ms HID report window; different
   keys run in parallel, while repeated equal outputs are queued with a report
-  gap so double letters remain distinct.
+  gap so double letters remain distinct. Modifier-aware branches that use
+  QMK's explicit `key_report(state->count, ...)` also retain that repeat count;
+  this includes repeated punctuation such as `Alt + .` producing repeated `!`.
 - Delete/Alt, Backspace/Alt, Tab/Shift, both Esc/Cmd-or-Ctrl keys, and
   Enter/Shift share one parallel 90 ms resolver. Each key owns its timer, so
   simultaneous modifiers never accumulate serial 90 ms delays.
@@ -43,11 +45,17 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
   Every concurrently active target is tracked separately, so releasing the
   first key in a fast arrow or letter roll cannot release the modifier from the
   keys that are still held.
+- A physically released but still latched modifier can acquire the next target
+  in an overlapping arrow rollover. Releasing the older arrow therefore cannot
+  remove Alt/Shift/Cmd from the newer arrow.
 - After a completed tap, pressing the same Delete/Backspace key again within
   120 ms immediately holds its navigation key down. This reproduces the original
   tap, tap-and-hold gesture and lets the host repeat deletion continuously.
   A single synthetic tap uses its own 12 ms pulse rather than borrowing the
   physical hold state, keeping every key-down paired with exactly one key-up.
+  If the same key is pressed again during the 12 ms post-release grace, the
+  preceding tap resolves immediately and the new press starts normally instead
+  of being discarded.
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before

@@ -18,10 +18,12 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - ausbalancierte Roll-Erkennung über die Loslassreihenfolge statt Seitenheuristiken
 - 12-ms-Toleranz für knapp zu früh losgelassene Mehrfach-Modifier
 - originale QMK-Tap-Dance-Zählung für schnelle Doppelbuchstaben
+- originale QMK-Wiederholungszahl auch für wiederholbare Modifier-Symbole
 - 170 ms für Buchstaben-Holds und zum Abschluss einer ununterbrochenen Tap-Serie
 - 120-ms-Fenster für „tippen, erneut tippen und halten“ bei Delete/Backspace
 - gepaarte 12-ms-HID-Pulse mit Warteschlange für gleiche Folgetasten über BLE
 - mehrere parallele Modifier-Ziele für schnelle Pfeil- und Buchstaben-Rolls
+- Weitergabe eines gelatchten Modifiers über überlappende Pfeil-Rollovers
 - saubere Serialisierung sich überlappender Pfeile derselben Achse
 - zusätzliche Advantage-360-Tasten auf allen Ebenen ohne Funktion
 

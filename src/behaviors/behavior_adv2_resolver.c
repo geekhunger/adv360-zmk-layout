@@ -297,6 +297,17 @@ static void tap_without(uint8_t mask, uint32_t keycode) {
     resume_modifiers(suspended);
 }
 
+/* QMK's key_report(state->count, ...) while selected modifiers stay suspended. */
+static void repeat_tap_without(uint8_t mask, uint32_t keycode, uint8_t count) {
+    uint8_t suspended = suspend_modifiers(mask);
+
+    for (uint8_t i = 0; i < count; i++) {
+        tap_code(keycode);
+    }
+
+    resume_modifiers(suspended);
+}
+
 static void tap_pair_without(uint8_t mask, uint32_t first, uint32_t second) {
     uint8_t suspended = suspend_modifiers(mask);
     tap_code(first);
@@ -323,6 +334,14 @@ static void windows_alt_code(uint8_t mask, const uint32_t *digits, size_t count)
     do {                                                                                           \
         const uint32_t sequence[] = {__VA_ARGS__};                                                 \
         windows_alt_code((mask), sequence, ARRAY_SIZE(sequence));                                  \
+    } while (0)
+
+#define WIN_ALT_CODE_REPEAT(mask, repeats, ...)                                                    \
+    do {                                                                                           \
+        const uint32_t sequence[] = {__VA_ARGS__};                                                 \
+        for (uint8_t i = 0; i < (repeats); i++) {                                                  \
+            windows_alt_code((mask), sequence, ARRAY_SIZE(sequence));                              \
+        }                                                                                          \
     } while (0)
 
 static bool is_windows(void) { return zmk_keymap_layer_active(WINDOWS_LAYER); }
@@ -392,7 +411,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
     switch (id) {
     case ADV2_W:
         if (alt && !cg) {
-            tap_without(MOD_ALT, W);
+            repeat_tap_without(MOD_ALT, W, count);
         } else {
             pass_key(id, count);
         }
@@ -409,7 +428,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
         }
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, E);
+                repeat_tap_without(MOD_ALT, E, count);
             } else {
                 tap_without(MOD_ALT, LC(LA(E)));
             }
@@ -421,7 +440,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
     case ADV2_R:
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, R);
+                repeat_tap_without(MOD_ALT, R, count);
             } else if (win) {
                 WIN_ALT_CODE(MOD_SA, KP_N1, KP_N6, KP_N9);
             } else {
@@ -438,7 +457,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !cg) {
-            tap_without(MOD_ALT, F);
+            repeat_tap_without(MOD_ALT, F, count);
             return;
         }
         pass_key(id, count);
@@ -450,11 +469,11 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !shift) {
-            tap_without(MOD_ALT, KP_PLUS);
+            repeat_tap_without(MOD_ALT, KP_PLUS, count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, A);
+            repeat_tap_without(MOD_ALT, A, count);
             return;
         }
         pass_key(id, count);
@@ -472,11 +491,11 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !shift) {
-            tap_without(MOD_ALT, KP_MINUS);
+            repeat_tap_without(MOD_ALT, KP_MINUS, count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, S);
+            repeat_tap_without(MOD_ALT, S, count);
             return;
         }
         pass_key(id, count);
@@ -492,21 +511,21 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
                 }
             } else if (alt) {
                 if (win) {
-                    WIN_ALT_CODE(MOD_SA, KP_N1, KP_N2, KP_N4);
+                    WIN_ALT_CODE_REPEAT(MOD_SA, count, KP_N1, KP_N2, KP_N4);
                 } else {
-                    tap_without(MOD_SA, LA(N7));
+                    repeat_tap_without(MOD_SA, LA(N7), count);
                 }
             } else {
-                tap_code(LS(N7));
+                repeat_tap_without(0, LS(N7), count);
             }
             return;
         }
         if (alt && !shift) {
-            tap_without(MOD_ALT, KP_DIVIDE);
+            repeat_tap_without(MOD_ALT, KP_DIVIDE, count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, D);
+            repeat_tap_without(MOD_ALT, D, count);
             return;
         }
         pass_key(id, count);
@@ -530,7 +549,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, T);
+            repeat_tap_without(MOD_ALT, T, count);
             return;
         }
         pass_key(id, count);
@@ -554,7 +573,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, G);
+            repeat_tap_without(MOD_ALT, G, count);
             return;
         }
         pass_key(id, count);
@@ -563,7 +582,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
     case ADV2_Z:
     case ADV2_X:
         if (alt && !cg) {
-            tap_without(MOD_ALT, base_keycode(id));
+            repeat_tap_without(MOD_ALT, base_keycode(id), count);
         } else {
             pass_key(id, count);
         }
@@ -583,7 +602,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, C);
+            repeat_tap_without(MOD_ALT, C, count);
             return;
         }
         pass_key(id, count);
@@ -599,7 +618,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !cg) {
-            tap_without(MOD_ALT, V);
+            repeat_tap_without(MOD_ALT, V, count);
             return;
         }
         pass_key(id, count);
@@ -615,7 +634,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !cg) {
-            tap_without(MOD_ALT, B);
+            repeat_tap_without(MOD_ALT, B, count);
             return;
         }
         pass_key(id, count);
@@ -627,7 +646,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !cg) {
-            tap_without(MOD_ALT, Y);
+            repeat_tap_without(MOD_ALT, Y, count);
             return;
         }
         pass_key(id, count);
@@ -647,7 +666,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, U);
+            repeat_tap_without(MOD_ALT, U, count);
             return;
         }
         pass_key(id, count);
@@ -663,7 +682,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !cg) {
-            tap_without(MOD_ALT, I);
+            repeat_tap_without(MOD_ALT, I, count);
             return;
         }
         pass_key(id, count);
@@ -683,7 +702,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, O);
+            repeat_tap_without(MOD_ALT, O, count);
             return;
         }
         pass_key(id, count);
@@ -703,11 +722,11 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && !shift) {
-            tap_without(MOD_ALT, BSLH);
+            repeat_tap_without(MOD_ALT, BSLH, count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, H);
+            repeat_tap_without(MOD_ALT, H, count);
             return;
         }
         pass_key(id, count);
@@ -719,7 +738,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, N);
+            repeat_tap_without(MOD_ALT, N, count);
             return;
         }
         pass_key(id, count);
@@ -730,18 +749,18 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             if (win && ctrl && !has_any(mods, MOD_SAG)) {
                 tap_without(MOD_ALL, LA(F4));
             } else if (alt && !cg) {
-                tap_without(MOD_ALT, Q);
+                repeat_tap_without(MOD_ALT, Q, count);
             } else {
-                tap_code(Q);
+                repeat_tap_without(0, Q, count);
             }
             return;
         }
         if (alt && !shift) {
-            tap_without(MOD_ALT, LS(N0));
+            repeat_tap_without(MOD_ALT, LS(N0), count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, K);
+            repeat_tap_without(MOD_ALT, K, count);
             return;
         }
         pass_key(id, count);
@@ -753,7 +772,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, L);
+            repeat_tap_without(MOD_ALT, L, count);
             return;
         }
         pass_key(id, count);
@@ -770,7 +789,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
         }
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, P);
+                repeat_tap_without(MOD_ALT, P, count);
             } else {
                 tap_without(MOD_ALT, LS(N5));
             }
@@ -786,9 +805,9 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
         }
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, J);
+                repeat_tap_without(MOD_ALT, J, count);
             } else {
-                tap_without(MOD_ALT, LS(N6));
+                repeat_tap_without(MOD_ALT, LS(N6), count);
             }
             return;
         }
@@ -806,9 +825,9 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
         }
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, M);
+                repeat_tap_without(MOD_ALT, M, count);
             } else {
-                tap_without(MOD_ALT, KP_MULTIPLY);
+                repeat_tap_without(MOD_ALT, KP_MULTIPLY, count);
             }
             return;
         }
@@ -817,11 +836,11 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
 
     case ADV2_COMMA:
         if (alt && !shift) {
-            tap_without(MOD_ALL, LS(MINUS));
+            repeat_tap_without(MOD_ALL, LS(MINUS), count);
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, COMMA);
+            repeat_tap_without(MOD_ALT, COMMA, count);
             return;
         }
         pass_key(id, count);
@@ -838,9 +857,9 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
         }
         if (sa && !cg) {
             if (shift) {
-                tap_without(MOD_ALT, DOT);
+                repeat_tap_without(MOD_ALT, DOT, count);
             } else {
-                tap_without(MOD_ALL, LS(N1));
+                repeat_tap_without(MOD_ALL, LS(N1), count);
             }
             return;
         }
@@ -857,7 +876,7 @@ static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
             return;
         }
         if (alt && shift && !cg) {
-            tap_without(MOD_ALT, FSLH);
+            repeat_tap_without(MOD_ALT, FSLH, count);
             return;
         }
         pass_key(id, count);
@@ -1373,7 +1392,12 @@ static void release_latched_mod_taps(int32_t position) {
 static void latch_active_mod_tap_holds(int32_t target_position) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
         struct mod_tap_state *state = &mod_taps[i];
-        if (state->phase != MOD_TAP_HOLDING) {
+        /*
+         * A physically released modifier may already be latched to an older
+         * target. Let a rollover extend that latch to the next target before
+         * the older target releases it.
+         */
+        if (state->phase != MOD_TAP_HOLDING && state->phase != MOD_TAP_LATCHED) {
             continue;
         }
 
@@ -1637,6 +1661,17 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     }
 
     if (pressed) {
+        /*
+         * A repeat can arrive while the previous tap is still inside the
+         * short post-release chord window. Finish that tap now and accept the
+         * new press; silently discarding it makes fast Backspace/Delete feel
+         * as though the key has hung.
+         */
+        if (state->phase == MOD_TAP_RELEASED_GRACE) {
+            k_work_cancel_delayable(&state->hold_work);
+            resolve_grace_mod_tap(state);
+        }
+
         if (state->phase != MOD_TAP_IDLE) {
             return ZMK_BEHAVIOR_OPAQUE;
         }
