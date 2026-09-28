@@ -5,6 +5,17 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.5
+
+- Raise the right peripheral split position queue from 10 to 64 snapshots so
+  fast Backspace, arrow, and letter bursts do not enter the upstream 100 ms
+  full-queue wait or discard an older state.
+- Raise the left central split position queue from 5 to 64 events to prevent
+  silent drops while draining right-half notifications.
+- Raise each half's matrix-scan event queue from 4 to 32 events.
+- Keep split connection timing, power behavior, layout, and all resolver timing
+  unchanged.
+
 ### v0.2.4
 
 - Preserve QMK `state->count` for modifier-aware repeatable outputs, including

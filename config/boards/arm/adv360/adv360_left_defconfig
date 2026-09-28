@@ -73,6 +73,11 @@ CONFIG_ZMK_BLE=y
 CONFIG_ZMK_USB=y
 CONFIG_ZMK_HID_INDICATORS=y
 
+# The upstream default is only five peripheral position events and silently
+# drops newer events when that queue is full. Fast right-half rolls need room
+# to survive brief BLE/workqueue stalls without reordering against left keys.
+CONFIG_ZMK_SPLIT_BLE_CENTRAL_POSITION_QUEUE_SIZE=64
+
 CONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y
 
 CONFIG_ZMK_POINTING=y

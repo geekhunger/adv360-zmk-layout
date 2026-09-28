@@ -91,6 +91,15 @@ and arrow serialization.
 Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
 power management, and the Advantage 360 board definition remain Kinesis ZMK.
 
+The queue capacities are deliberately tuned without changing split connection
+timing: each matrix scan queue holds 32 events, the right peripheral holds 64
+position snapshots, and the left central holds 64 received position events.
+The pinned fork defaults to 4/10/5 respectively; under a fast right-half burst,
+the ten-entry peripheral queue can block for up to 100 ms before discarding an
+old snapshot, while the five-entry central queue can silently drop a new event.
+The larger queues absorb temporary scheduler/BLE stalls while retaining the
+fork's original connection interval, slave latency, and power behavior.
+
 ## Intentional implementation boundary
 
 Only the layout's semantic behaviors are custom. Matrix scanning, split

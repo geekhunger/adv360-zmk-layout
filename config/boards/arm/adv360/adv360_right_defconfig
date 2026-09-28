@@ -59,3 +59,7 @@ CONFIG_ZMK_BLE_EXPERIMENTAL_FEATURES=y
 
 CONFIG_ZMK_BLE=y
 CONFIG_ZMK_USB=y
+
+# The upstream ten-state queue blocks for up to 100 ms when full before it
+# discards an old snapshot. Absorb fast Backspace/arrow/text bursts instead.
+CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_POSITION_QUEUE_SIZE=64
