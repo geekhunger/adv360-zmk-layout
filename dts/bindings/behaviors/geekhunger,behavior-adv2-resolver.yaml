@@ -1,0 +1,5 @@
+description: Resolve an Advantage 2 compatible tap, hold, or navigation action
+
+compatible: "geekhunger,behavior-adv2-resolver"
+
+include: one_param.yaml

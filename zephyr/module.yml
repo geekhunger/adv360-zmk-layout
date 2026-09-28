@@ -1,0 +1,6 @@
+name: geekhunger_adv360_layout
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

@@ -11,6 +11,12 @@ RUN west update
 # West Zephyr export
 RUN west zephyr-export
 
+COPY CMakeLists.txt Kconfig ./layout_module/
+COPY zephyr ./layout_module/zephyr
+COPY dts ./layout_module/dts
+COPY include ./layout_module/include
+COPY src ./layout_module/src
+
 COPY bin/build.sh ./
 
 CMD ["./build.sh"]

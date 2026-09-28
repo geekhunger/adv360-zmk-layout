@@ -1,0 +1,10 @@
+menu "Geekhunger Advantage 360 layout"
+
+config ZMK_BEHAVIOR_ADV2_RESOLVER
+    bool "Advantage 2 compatible key resolver"
+    default y
+    help
+      Reproduces the modifier-aware tap/hold behavior of the original
+      Advantage 2 QMK keymap on an Advantage 360 Pro.
+
+endmenu
