@@ -21,6 +21,9 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
   central half, makes the two opposite-hand Alt chords symmetric, and measures
   the repeat gesture from the first tap's release: tap, then press-and-hold
   keeps Delete/Backspace down for normal host key repeat.
+- Existing modifiers never force a Delete/Backspace decision. Holding a nav
+  key as Alt alongside Cmd/Ctrl/Shift therefore remains possible for chords
+  such as macOS Alt+Cmd+Esc.
 - German remains the required host keyboard layout.
 
 ## Deliberate hardware normalization

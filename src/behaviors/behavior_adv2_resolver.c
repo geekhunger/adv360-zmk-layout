@@ -876,12 +876,6 @@ static int handle_nav_dual(uint16_t action, bool pressed,
             return ZMK_BEHAVIOR_OPAQUE;
         }
 
-        const uint8_t mods = zmk_hid_get_explicit_mods();
-        if (has_any(mods, MOD_ALT | MOD_CG)) {
-            press_nav_dual_tap(state, NULL, event);
-            return ZMK_BEHAVIOR_OPAQUE;
-        }
-
         if ((state->last_tap_released_at + NAV_DUAL_QUICK_TAP_MS) > k_uptime_get()) {
             press_nav_dual_tap(state, NULL, event);
             return ZMK_BEHAVIOR_OPAQUE;
