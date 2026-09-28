@@ -14,8 +14,13 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - QMK timing is preserved: 90 ms for modifier tap/hold and 170 ms for letters.
 - QMK's `IGNORE_MOD_TAP_INTERRUPT` is represented by ZMK's `tap-preferred`
   decision rule for modifier tap-holds.
-- QMK's 90 ms sequential-tap window is represented by `quick-tap-ms = <90>`,
-  so tap, then press-and-hold repeats Backspace/Delete instead of becoming Alt.
+- Letter hold-taps use positional interruption with an unreachable trigger
+  position. Any real second key therefore resolves the first letter as a tap
+  immediately, matching QMK Tap Dance instead of buffering fast typing.
+- Delete/Backspace use a shared custom 90 ms state machine. It measures on the
+  central half, makes the two opposite-hand Alt chords symmetric, and measures
+  the repeat gesture from the first tap's release: tap, then press-and-hold
+  keeps Delete/Backspace down for normal host key repeat.
 - German remains the required host keyboard layout.
 
 ## Deliberate hardware normalization
@@ -38,7 +43,8 @@ on every layer: positions 6, 7, 20, 21, 34, 39, 60, and 75.
 Plain ZMK hold-tap can detect a hold, but the original QMK callbacks also
 inspect arbitrary combinations of Shift, Alt, Ctrl, and GUI, temporarily
 suppress selected modifiers, select an OS-specific sequence, and remap
-Windows navigation. The resolver implements only that compatibility logic.
+Windows navigation. The resolver implements that compatibility logic plus the
+paired Delete/Backspace state machine required for reliable cross-half chords.
 
 Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
 power management, and the Advantage 360 board definition remain Kinesis ZMK.

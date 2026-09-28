@@ -17,8 +17,13 @@
         adv2_letter: adv2_letter_hold_tap {
             compatible = "zmk,behavior-hold-tap";
             #binding-cells = <2>;
-            flavor = "tap-preferred";
+            /*
+             * QMK Tap Dance resolves an interrupted letter as a tap at once.
+             * No real key position is 255, so every real interrupt forces tap.
+             */
+            flavor = "hold-preferred";
             tapping-term-ms = <170>;
+            hold-trigger-key-positions = <255>;
             bindings = <&adv2>, <&adv2>;
         };
 
@@ -35,15 +40,6 @@
             bindings = <&kp>, <&kp>;
         };
 
-        /* Same modifier timing, with a resolver action on tap. */
-        adv2_nav_mod_tap: adv2_navigation_modifier_hold_tap {
-            compatible = "zmk,behavior-hold-tap";
-            #binding-cells = <2>;
-            flavor = "tap-preferred";
-            tapping-term-ms = <90>;
-            quick-tap-ms = <90>;
-            bindings = <&kp>, <&adv2>;
-        };
     };
 
     keymap {
@@ -54,7 +50,7 @@
             bindings = <
                 &none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none                                      &none &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &kp MINUS
                 &none &none &adv2_letter ADV2_HOLD(ADV2_W) ADV2_TAP(ADV2_W) &adv2_letter ADV2_HOLD(ADV2_E) ADV2_TAP(ADV2_E) &adv2_letter ADV2_HOLD(ADV2_R) ADV2_TAP(ADV2_R) &adv2_letter ADV2_HOLD(ADV2_F) ADV2_TAP(ADV2_F) &none   &none &adv2_letter ADV2_HOLD(ADV2_Y) ADV2_TAP(ADV2_Y) &adv2_letter ADV2_HOLD(ADV2_U) ADV2_TAP(ADV2_U) &adv2_letter ADV2_HOLD(ADV2_I) ADV2_TAP(ADV2_I) &adv2_letter ADV2_HOLD(ADV2_O) ADV2_TAP(ADV2_O) &none &none
-                &none &adv2_letter ADV2_HOLD(ADV2_A) ADV2_TAP(ADV2_A) &adv2_letter ADV2_HOLD(ADV2_S) ADV2_TAP(ADV2_S) &adv2_letter ADV2_HOLD(ADV2_D) ADV2_TAP(ADV2_D) &adv2_letter ADV2_HOLD(ADV2_T) ADV2_TAP(ADV2_T) &adv2_letter ADV2_HOLD(ADV2_G) ADV2_TAP(ADV2_G) &none   &adv2_nav_mod_tap LALT ADV2_NAV_DELETE &none   &none &adv2_nav_mod_tap LALT ADV2_NAV_BACKSPACE   &none &adv2_letter ADV2_HOLD(ADV2_H) ADV2_TAP(ADV2_H) &adv2_letter ADV2_HOLD(ADV2_N) ADV2_TAP(ADV2_N) &adv2_letter ADV2_HOLD(ADV2_K) ADV2_TAP(ADV2_K) &adv2_letter ADV2_HOLD(ADV2_L) ADV2_TAP(ADV2_L) &adv2_letter ADV2_HOLD(ADV2_P) ADV2_TAP(ADV2_P) &none
+                &none &adv2_letter ADV2_HOLD(ADV2_A) ADV2_TAP(ADV2_A) &adv2_letter ADV2_HOLD(ADV2_S) ADV2_TAP(ADV2_S) &adv2_letter ADV2_HOLD(ADV2_D) ADV2_TAP(ADV2_D) &adv2_letter ADV2_HOLD(ADV2_T) ADV2_TAP(ADV2_T) &adv2_letter ADV2_HOLD(ADV2_G) ADV2_TAP(ADV2_G) &none   &adv2 ADV2_DUAL_DELETE &none   &none &adv2 ADV2_DUAL_BACKSPACE   &none &adv2_letter ADV2_HOLD(ADV2_H) ADV2_TAP(ADV2_H) &adv2_letter ADV2_HOLD(ADV2_N) ADV2_TAP(ADV2_N) &adv2_letter ADV2_HOLD(ADV2_K) ADV2_TAP(ADV2_K) &adv2_letter ADV2_HOLD(ADV2_L) ADV2_TAP(ADV2_L) &adv2_letter ADV2_HOLD(ADV2_P) ADV2_TAP(ADV2_P) &none
                 &none &adv2_letter ADV2_HOLD(ADV2_Z) ADV2_TAP(ADV2_Z) &adv2_letter ADV2_HOLD(ADV2_X) ADV2_TAP(ADV2_X) &adv2_letter ADV2_HOLD(ADV2_C) ADV2_TAP(ADV2_C) &adv2_letter ADV2_HOLD(ADV2_V) ADV2_TAP(ADV2_V) &adv2_letter ADV2_HOLD(ADV2_B) ADV2_TAP(ADV2_B)   &kp LCTRL &none   &adv2_letter ADV2_HOLD(ADV2_J) ADV2_TAP(ADV2_J) &adv2_letter ADV2_HOLD(ADV2_M) ADV2_TAP(ADV2_M) &adv2_letter ADV2_HOLD(ADV2_COMMA) ADV2_TAP(ADV2_COMMA) &adv2_letter ADV2_HOLD(ADV2_DOT) ADV2_TAP(ADV2_DOT) &adv2_letter ADV2_HOLD(ADV2_SLASH) ADV2_TAP(ADV2_SLASH) &none
                 &none &none &none &none &kp LGUI   &kp SPACE &adv2_mod_tap LSHIFT TAB &adv2_mod_tap LGUI ESCAPE   &adv2_mod_tap LGUI ESCAPE &adv2_mod_tap RSHIFT ENTER &mo NUMPAD   &adv2 ADV2_NAV_LEFT &adv2 ADV2_NAV_DOWN &adv2 ADV2_NAV_UP &adv2 ADV2_NAV_RIGHT &none
             >;
@@ -65,7 +61,7 @@
             bindings = <
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
-                &trans &trans &trans &trans &trans &trans &none   &adv2_nav_mod_tap RALT ADV2_NAV_DELETE &kp LALT   &trans &adv2_nav_mod_tap RALT ADV2_NAV_BACKSPACE   &none &trans &trans &trans &trans &trans &trans
+                &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
                 &none &trans &trans &trans &kp LALT   &trans &trans &adv2_mod_tap LCTRL ESCAPE   &adv2_mod_tap LCTRL ESCAPE &trans &trans   &trans &trans &trans &trans &none
             >;

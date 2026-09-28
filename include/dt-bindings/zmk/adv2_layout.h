@@ -42,3 +42,8 @@
 #define ADV2_NAV_DOWN (ADV2_NAV_FLAG | 4)
 #define ADV2_NAV_DELETE (ADV2_NAV_FLAG | 5)
 #define ADV2_NAV_BACKSPACE (ADV2_NAV_FLAG | 6)
+
+/* Symmetric cross-half Alt/Delete and Alt/Backspace tap-hold keys. */
+#define ADV2_DUAL_FLAG 0x400
+#define ADV2_DUAL_DELETE (ADV2_DUAL_FLAG | 5)
+#define ADV2_DUAL_BACKSPACE (ADV2_DUAL_FLAG | 6)

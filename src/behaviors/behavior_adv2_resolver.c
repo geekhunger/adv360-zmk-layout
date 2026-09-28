@@ -42,6 +42,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define ALT_CODE_DELAY_MS 12
 #define ADV2_MAX_POSITIONS 128
+#define NAV_DUAL_TAPPING_TERM_MS 90
+#define NAV_DUAL_QUICK_TAP_MS 90
 
 enum nav_state {
     NAV_IDLE,
@@ -50,6 +52,31 @@ enum nav_state {
 };
 
 static uint8_t nav_states[ADV2_MAX_POSITIONS];
+
+enum nav_dual_phase {
+    NAV_DUAL_IDLE,
+    NAV_DUAL_PENDING,
+    NAV_DUAL_HOLDING,
+    NAV_DUAL_TAP_DOWN,
+};
+
+struct nav_dual_state {
+    uint16_t action;
+    int32_t position;
+    int64_t last_tap_released_at;
+    enum nav_dual_phase phase;
+    bool physically_pressed;
+    bool hold_active;
+    bool release_pending;
+    uint8_t dependents;
+    struct nav_dual_state *hold_owner;
+    struct zmk_behavior_binding_event press_event;
+    struct k_work_delayable hold_work;
+};
+
+static struct nav_dual_state nav_duals[2];
+static uint8_t nav_alt_holds;
+static uint32_t nav_alt_keycode;
 
 struct modifier_entry {
     uint8_t flag;
@@ -729,9 +756,176 @@ static int handle_navigation(uint16_t action, bool pressed,
     return ZMK_BEHAVIOR_OPAQUE;
 }
 
+static uint16_t nav_dual_to_navigation(uint16_t action) {
+    switch (action & ADV2_ID_MASK) {
+    case 5: return ADV2_NAV_DELETE;
+    case 6: return ADV2_NAV_BACKSPACE;
+    default: return 0;
+    }
+}
+
+static struct nav_dual_state *nav_dual_for_action(uint16_t action) {
+    switch (action & ADV2_ID_MASK) {
+    case 5: return &nav_duals[0];
+    case 6: return &nav_duals[1];
+    default: return NULL;
+    }
+}
+
+static struct nav_dual_state *other_nav_dual(struct nav_dual_state *state) {
+    return state == &nav_duals[0] ? &nav_duals[1] : &nav_duals[0];
+}
+
+static void reset_nav_dual(struct nav_dual_state *state) {
+    state->position = -1;
+    state->phase = NAV_DUAL_IDLE;
+    state->physically_pressed = false;
+    state->hold_active = false;
+    state->release_pending = false;
+    state->dependents = 0;
+    state->hold_owner = NULL;
+}
+
+static void activate_nav_dual_hold(struct nav_dual_state *state) {
+    if (state->hold_active) {
+        return;
+    }
+
+    if (nav_alt_holds == 0) {
+        nav_alt_keycode = is_windows() ? RALT : LALT;
+        emit_code(nav_alt_keycode, true);
+    }
+    nav_alt_holds++;
+    state->hold_active = true;
+    state->phase = NAV_DUAL_HOLDING;
+}
+
+static void release_nav_dual_hold(struct nav_dual_state *state) {
+    if (!state->hold_active) {
+        return;
+    }
+
+    state->hold_active = false;
+    if (nav_alt_holds > 0 && --nav_alt_holds == 0) {
+        emit_code(nav_alt_keycode, false);
+    }
+}
+
+static void nav_dual_hold_timer(struct k_work *item) {
+    struct k_work_delayable *delayable = k_work_delayable_from_work(item);
+    struct nav_dual_state *state =
+        CONTAINER_OF(delayable, struct nav_dual_state, hold_work);
+
+    if (state->physically_pressed && state->phase == NAV_DUAL_PENDING) {
+        activate_nav_dual_hold(state);
+    }
+}
+
+static void press_nav_dual_tap(struct nav_dual_state *state,
+                               struct nav_dual_state *hold_owner,
+                               struct zmk_behavior_binding_event event) {
+    state->phase = NAV_DUAL_TAP_DOWN;
+    state->hold_owner = hold_owner;
+    if (hold_owner != NULL) {
+        hold_owner->dependents++;
+    }
+    handle_navigation(nav_dual_to_navigation(state->action), true, event);
+}
+
+static void finish_nav_dual_tap(struct nav_dual_state *state,
+                                struct zmk_behavior_binding_event event) {
+    handle_navigation(nav_dual_to_navigation(state->action), false, event);
+    state->last_tap_released_at = k_uptime_get();
+
+    struct nav_dual_state *owner = state->hold_owner;
+    state->hold_owner = NULL;
+    if (owner != NULL && owner->dependents > 0) {
+        owner->dependents--;
+        if (owner->release_pending && owner->dependents == 0) {
+            release_nav_dual_hold(owner);
+            reset_nav_dual(owner);
+        }
+    }
+
+    reset_nav_dual(state);
+}
+
+static int handle_nav_dual(uint16_t action, bool pressed,
+                           struct zmk_behavior_binding_event event) {
+    struct nav_dual_state *state = nav_dual_for_action(action);
+    if (state == NULL || event.position >= ADV2_MAX_POSITIONS) {
+        return -EINVAL;
+    }
+
+    if (pressed) {
+        if (state->phase != NAV_DUAL_IDLE) {
+            return ZMK_BEHAVIOR_OPAQUE;
+        }
+
+        state->action = action;
+        state->position = event.position;
+        state->press_event = event;
+        state->physically_pressed = true;
+
+        struct nav_dual_state *other = other_nav_dual(state);
+        if (other->physically_pressed &&
+            (other->phase == NAV_DUAL_PENDING || other->phase == NAV_DUAL_HOLDING)) {
+            k_work_cancel_delayable(&other->hold_work);
+            activate_nav_dual_hold(other);
+            press_nav_dual_tap(state, other, event);
+            return ZMK_BEHAVIOR_OPAQUE;
+        }
+
+        const uint8_t mods = zmk_hid_get_explicit_mods();
+        if (has_any(mods, MOD_ALT | MOD_CG)) {
+            press_nav_dual_tap(state, NULL, event);
+            return ZMK_BEHAVIOR_OPAQUE;
+        }
+
+        if ((state->last_tap_released_at + NAV_DUAL_QUICK_TAP_MS) > k_uptime_get()) {
+            press_nav_dual_tap(state, NULL, event);
+            return ZMK_BEHAVIOR_OPAQUE;
+        }
+
+        state->phase = NAV_DUAL_PENDING;
+        k_work_schedule(&state->hold_work, K_MSEC(NAV_DUAL_TAPPING_TERM_MS));
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+
+    state->physically_pressed = false;
+    switch (state->phase) {
+    case NAV_DUAL_PENDING:
+        k_work_cancel_delayable(&state->hold_work);
+        handle_navigation(nav_dual_to_navigation(state->action), true, event);
+        handle_navigation(nav_dual_to_navigation(state->action), false, event);
+        state->last_tap_released_at = k_uptime_get();
+        reset_nav_dual(state);
+        break;
+    case NAV_DUAL_TAP_DOWN:
+        finish_nav_dual_tap(state, event);
+        break;
+    case NAV_DUAL_HOLDING:
+        if (state->dependents > 0) {
+            state->release_pending = true;
+        } else {
+            release_nav_dual_hold(state);
+            reset_nav_dual(state);
+        }
+        break;
+    case NAV_DUAL_IDLE:
+        break;
+    }
+
+    return ZMK_BEHAVIOR_OPAQUE;
+}
+
 static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
                                  struct zmk_behavior_binding_event event) {
     const uint16_t action = binding->param1;
+
+    if (action & ADV2_DUAL_FLAG) {
+        return handle_nav_dual(action, true, event);
+    }
 
     if (action & ADV2_NAV_FLAG) {
         return handle_navigation(action, true, event);
@@ -744,6 +938,10 @@ static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
 static int adv2_resolver_released(struct zmk_behavior_binding *binding,
                                   struct zmk_behavior_binding_event event) {
     const uint16_t action = binding->param1;
+
+    if (action & ADV2_DUAL_FLAG) {
+        return handle_nav_dual(action, false, event);
+    }
 
     if (action & ADV2_NAV_FLAG) {
         return handle_navigation(action, false, event);
@@ -760,7 +958,17 @@ static const struct behavior_driver_api adv2_resolver_driver_api = {
 #endif
 };
 
-static int adv2_resolver_init(const struct device *dev) { return 0; }
+static int adv2_resolver_init(const struct device *dev) {
+    nav_duals[0].action = ADV2_DUAL_DELETE;
+    nav_duals[1].action = ADV2_DUAL_BACKSPACE;
+    nav_duals[0].last_tap_released_at = INT64_MIN / 2;
+    nav_duals[1].last_tap_released_at = INT64_MIN / 2;
+    reset_nav_dual(&nav_duals[0]);
+    reset_nav_dual(&nav_duals[1]);
+    k_work_init_delayable(&nav_duals[0].hold_work, nav_dual_hold_timer);
+    k_work_init_delayable(&nav_duals[1].hold_work, nav_dual_hold_timer);
+    return 0;
+}
 
 #define ADV2_RESOLVER_INST(n)                                                                     \
     BEHAVIOR_DT_INST_DEFINE(n, adv2_resolver_init, NULL, NULL, NULL, POST_KERNEL,                  \
