@@ -40,6 +40,8 @@ jobs:
         run: west init -l config
       - name: West Update
         run: west update
+      - name: Apply split transport backpressure patch
+        run: git -C zmk apply "${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
@@ -96,6 +98,8 @@ jobs:
         run: west init -l config
       - name: West Update
         run: west update
+      - name: Apply split transport backpressure patch
+        run: git -C zmk apply "${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)

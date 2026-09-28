@@ -5,6 +5,19 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.2.6
+
+- Serialize right-to-left position notifications so the Bluetooth TX pool is
+  never flooded by a burst of queued full-matrix snapshots.
+- Retry transient `-ENOMEM`/`-EAGAIN` notification failures instead of silently
+  discarding the corresponding right-half state.
+- Remove the upstream 100 ms blocking wait when the peripheral snapshot queue
+  is full; in that exceptional case the newest physical state replaces the
+  oldest queued snapshot.
+- Keep the layout, custom resolver, 90/170/12 ms timing, HID pulse timing, and
+  BLE connection parameters unchanged so this release tests transport flow
+  control in isolation.
+
 ### v0.2.5
 
 - Raise the right peripheral split position queue from 10 to 64 snapshots so

@@ -3,6 +3,21 @@
 This repository ports geekhunger's long-used Advantage 2 QMK layout to an
 unmodified Kinesis Advantage 360 Pro running ZMK.
 
+## Local ZMK split-transport patch
+
+The pinned `refil/zmk` revision drains all queued right-half matrix snapshots
+through `bt_gatt_notify()` in one worker invocation. Once Zephyr's Bluetooth TX
+buffers are exhausted, later calls return an error and the upstream code has
+already removed those snapshots from its queue. The same upstream path can
+also block right-half matrix processing for up to 100 ms when its queue fills.
+
+`patches/zmk-split-notify-backpressure.patch` is applied by both GitHub Actions
+build jobs after `west update`. It permits one outstanding position
+notification, advances the queue from the completion callback, retries
+temporary TX backpressure, and makes the full-queue fallback non-blocking. It
+does not change the keymap, resolver semantics, tapping terms, BLE connection
+interval, or peripheral latency.
+
 ## Preserved intentionally
 
 - macOS is the base profile; Windows is a sparse persistent overlay.
