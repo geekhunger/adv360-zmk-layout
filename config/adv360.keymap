@@ -13,19 +13,6 @@
             #binding-cells = <1>;
         };
 
-        /*
-         * QMK TAPPING_TERM: 90 ms plus IGNORE_MOD_TAP_INTERRUPT.
-         * A second quick press keeps the tap key held for key repeat.
-         */
-        adv2_mod_tap: adv2_modifier_hold_tap {
-            compatible = "zmk,behavior-hold-tap";
-            #binding-cells = <2>;
-            flavor = "tap-preferred";
-            tapping-term-ms = <90>;
-            quick-tap-ms = <90>;
-            bindings = <&kp>, <&kp>;
-        };
-
     };
 
     keymap {
@@ -38,7 +25,7 @@
                 &none &none &adv2 ADV2_W &adv2 ADV2_E &adv2 ADV2_R &adv2 ADV2_F &none   &none &adv2 ADV2_Y &adv2 ADV2_U &adv2 ADV2_I &adv2 ADV2_O &none &none
                 &none &adv2 ADV2_A &adv2 ADV2_S &adv2 ADV2_D &adv2 ADV2_T &adv2 ADV2_G &none   &adv2 ADV2_DUAL_DELETE &none   &none &adv2 ADV2_DUAL_BACKSPACE   &none &adv2 ADV2_H &adv2 ADV2_N &adv2 ADV2_K &adv2 ADV2_L &adv2 ADV2_P &none
                 &none &adv2 ADV2_Z &adv2 ADV2_X &adv2 ADV2_C &adv2 ADV2_V &adv2 ADV2_B   &kp LCTRL &none   &adv2 ADV2_J &adv2 ADV2_M &adv2 ADV2_COMMA &adv2 ADV2_DOT &adv2 ADV2_SLASH &none
-                &none &none &none &none &kp LGUI   &kp SPACE &adv2_mod_tap LSHIFT TAB &adv2_mod_tap LGUI ESCAPE   &adv2_mod_tap LGUI ESCAPE &adv2_mod_tap RSHIFT ENTER &mo NUMPAD   &adv2 ADV2_NAV_LEFT &adv2 ADV2_NAV_DOWN &adv2 ADV2_NAV_UP &adv2 ADV2_NAV_RIGHT &none
+                &none &none &none &none &kp LGUI   &kp SPACE &adv2 ADV2_DUAL_SHIFT_TAB &adv2 ADV2_DUAL_CMD_ESCAPE   &adv2 ADV2_DUAL_CMD_ESCAPE &adv2 ADV2_DUAL_SHIFT_ENTER &mo NUMPAD   &adv2 ADV2_NAV_LEFT &adv2 ADV2_NAV_DOWN &adv2 ADV2_NAV_UP &adv2 ADV2_NAV_RIGHT &none
             >;
         };
 
@@ -49,7 +36,7 @@
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
-                &none &trans &trans &trans &kp LALT   &trans &trans &adv2_mod_tap LCTRL ESCAPE   &adv2_mod_tap LCTRL ESCAPE &trans &trans   &trans &trans &trans &trans &none
+                &none &trans &trans &trans &kp LALT   &trans &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
             >;
         };
 

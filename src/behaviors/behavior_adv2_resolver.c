@@ -42,46 +42,70 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOD_ALL (MOD_CTRL | MOD_SHIFT | MOD_ALT | MOD_GUI)
 
 #define ALT_CODE_DELAY_MS 12
+#define NUMPAD_LAYER 2
 #define ADV2_MAX_POSITIONS 128
 #define ADV2_SEMANTIC_COUNT ADV2_SLASH
 #define SEMANTIC_TAPPING_TERM_MS 170
-#define NAV_DUAL_TAPPING_TERM_MS 90
-#define NAV_DUAL_QUICK_TAP_MS 90
+#define MOD_TAP_TAPPING_TERM_MS 90
+#define NAV_REPEAT_WINDOW_MS 120
 #define ADV2_CAPTURED_POSITION_EVENTS 40
+#define ADV2_MOD_TAP_COUNT 6
 
 enum nav_state {
     NAV_IDLE,
     NAV_FORWARDED,
     NAV_HANDLED,
+    NAV_SUPPRESSED,
 };
 
 static uint8_t nav_states[ADV2_MAX_POSITIONS];
 
-enum nav_dual_phase {
-    NAV_DUAL_IDLE,
-    NAV_DUAL_PENDING,
-    NAV_DUAL_HOLDING,
-    NAV_DUAL_TAP_DOWN,
+struct nav_axis_state {
+    int32_t position;
+    uint16_t action;
 };
 
-struct nav_dual_state {
+static struct nav_axis_state horizontal_axis = {.position = -1};
+static struct nav_axis_state vertical_axis = {.position = -1};
+
+enum mod_tap_phase {
+    MOD_TAP_IDLE,
+    MOD_TAP_PENDING,
+    MOD_TAP_HOLDING,
+    MOD_TAP_REPEAT_DOWN,
+};
+
+struct mod_tap_state {
     uint16_t action;
     int32_t position;
+    int64_t pressed_at;
     int64_t last_tap_released_at;
-    enum nav_dual_phase phase;
+    enum mod_tap_phase phase;
     bool physically_pressed;
     bool hold_active;
     uint32_t hold_keycode;
     struct k_work_delayable hold_work;
 };
 
-static struct nav_dual_state nav_duals[2];
-static uint8_t nav_lalt_holds;
-static uint8_t nav_ralt_holds;
-static struct nav_dual_state *pending_nav_dual;
-static struct zmk_position_state_changed_event
-    captured_position_events[ADV2_CAPTURED_POSITION_EVENTS];
-static uint8_t captured_position_event_count;
+static struct mod_tap_state mod_taps[ADV2_MOD_TAP_COUNT];
+static uint8_t mod_tap_hold_counts[8];
+
+enum deferred_input_type {
+    DEFERRED_POSITION,
+    DEFERRED_MOD_TAP_PENDING,
+    DEFERRED_MOD_TAP,
+};
+
+struct deferred_input_event {
+    enum deferred_input_type type;
+    struct zmk_position_state_changed_event position_event;
+    uint16_t mod_tap_action;
+    struct zmk_behavior_binding_event binding_event;
+    struct mod_tap_state *mod_tap_state;
+};
+
+static struct deferred_input_event deferred_input_events[ADV2_CAPTURED_POSITION_EVENTS];
+static uint8_t deferred_input_event_count;
 
 struct semantic_tap_dance {
     uint16_t id;
@@ -786,7 +810,10 @@ static int release_semantic_dance(uint16_t id, struct zmk_behavior_binding_event
     }
 
     dance->pressed = false;
-    if (dance->decided) {
+    if (!dance->decided) {
+        /* A short text tap is complete at release; 170 ms is only the hold threshold. */
+        decide_semantic_dance(dance, false);
+    } else {
         clear_semantic_dance(dance);
     }
     return ZMK_BEHAVIOR_OPAQUE;
@@ -821,6 +848,19 @@ static uint32_t nav_keycode(uint16_t action) {
     case ADV2_NAV_DELETE: return DELETE;
     case ADV2_NAV_BACKSPACE: return BACKSPACE;
     default: return 0;
+    }
+}
+
+static struct nav_axis_state *nav_axis(uint16_t action) {
+    switch (action) {
+    case ADV2_NAV_LEFT:
+    case ADV2_NAV_RIGHT:
+        return &horizontal_axis;
+    case ADV2_NAV_UP:
+    case ADV2_NAV_DOWN:
+        return &vertical_axis;
+    default:
+        return NULL;
     }
 }
 
@@ -872,19 +912,38 @@ static int handle_navigation(uint16_t action, bool pressed,
         if (keycode == 0) {
             return -EINVAL;
         }
+
+        struct nav_axis_state *axis = nav_axis(action);
+        if (axis != NULL && axis->position >= 0 && axis->position != event.position) {
+            if (axis->position < ADV2_MAX_POSITIONS &&
+                nav_states[axis->position] == NAV_FORWARDED) {
+                emit_code(nav_keycode(axis->action), false);
+                nav_states[axis->position] = NAV_SUPPRESSED;
+            }
+        }
+
         nav_states[event.position] = NAV_FORWARDED;
         emit_code(keycode, true);
+        if (axis != NULL) {
+            axis->position = event.position;
+            axis->action = action;
+        }
         return ZMK_BEHAVIOR_OPAQUE;
     }
 
     if (nav_states[event.position] == NAV_FORWARDED) {
         emit_code(nav_keycode(action), false);
+        struct nav_axis_state *axis = nav_axis(action);
+        if (axis != NULL && axis->position == event.position) {
+            axis->position = -1;
+            axis->action = 0;
+        }
     }
     nav_states[event.position] = NAV_IDLE;
     return ZMK_BEHAVIOR_OPAQUE;
 }
 
-static uint16_t nav_dual_to_navigation(uint16_t action) {
+static uint16_t mod_tap_to_navigation(uint16_t action) {
     switch (action & ADV2_ID_MASK) {
     case 5: return ADV2_NAV_DELETE;
     case 6: return ADV2_NAV_BACKSPACE;
@@ -892,171 +951,305 @@ static uint16_t nav_dual_to_navigation(uint16_t action) {
     }
 }
 
-static struct nav_dual_state *nav_dual_for_action(uint16_t action) {
-    switch (action & ADV2_ID_MASK) {
-    case 5: return &nav_duals[0];
-    case 6: return &nav_duals[1];
-    default: return NULL;
-    }
+static bool mod_tap_is_navigation(uint16_t action) {
+    return mod_tap_to_navigation(action) != 0;
 }
 
-static void reset_nav_dual(struct nav_dual_state *state) {
-    state->position = -1;
-    state->phase = NAV_DUAL_IDLE;
+static struct mod_tap_state *mod_tap_for_event(uint16_t action, int32_t position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].action == action && mod_taps[i].position == position) {
+            return &mod_taps[i];
+        }
+    }
+    return NULL;
+}
+
+static bool is_mod_tap_position(int32_t position) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].position == position) {
+            /* Releases must reach the behavior that handled their press. */
+            if (mod_taps[i].phase != MOD_TAP_IDLE) {
+                return true;
+            }
+
+            /* NUM overrides every dual-role position except transparent position 67. */
+            return !zmk_keymap_layer_active(NUMPAD_LAYER) || position == 67;
+        }
+    }
+    return false;
+}
+
+static void reset_mod_tap(struct mod_tap_state *state) {
+    state->phase = MOD_TAP_IDLE;
     state->physically_pressed = false;
     state->hold_active = false;
     state->hold_keycode = 0;
+    state->pressed_at = 0;
 }
 
-static uint8_t *nav_alt_hold_counter(uint32_t keycode) {
-    return keycode == RALT ? &nav_ralt_holds : &nav_lalt_holds;
+static uint8_t *mod_tap_hold_counter(uint32_t keycode) {
+    for (size_t i = 0; i < ARRAY_SIZE(modifier_entries); i++) {
+        if (modifier_entries[i].keycode == keycode) {
+            return &mod_tap_hold_counts[i];
+        }
+    }
+    return NULL;
 }
 
-static void release_captured_position_events(void);
+static void release_deferred_input_events(void);
 
-static void activate_nav_dual_hold(struct nav_dual_state *state) {
+static void queue_mod_tap_marker(struct mod_tap_state *state,
+                                 struct zmk_behavior_binding_event event) {
+    if (deferred_input_event_count >= ADV2_CAPTURED_POSITION_EVENTS) {
+        LOG_ERR("QMK mod-tap deferred input buffer full");
+        return;
+    }
+
+    struct deferred_input_event *deferred =
+        &deferred_input_events[deferred_input_event_count++];
+    deferred->type = DEFERRED_MOD_TAP_PENDING;
+    deferred->mod_tap_action = state->action;
+    deferred->binding_event = event;
+    deferred->mod_tap_state = state;
+}
+
+static int find_mod_tap_marker(struct mod_tap_state *state) {
+    for (uint8_t i = 0; i < deferred_input_event_count; i++) {
+        if (deferred_input_events[i].type == DEFERRED_MOD_TAP_PENDING &&
+            deferred_input_events[i].mod_tap_state == state) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void remove_deferred_input(uint8_t index) {
+    for (uint8_t i = index + 1; i < deferred_input_event_count; i++) {
+        deferred_input_events[i - 1] = deferred_input_events[i];
+    }
+    deferred_input_event_count--;
+}
+
+static uint32_t mod_tap_hold_keycode(uint16_t action) {
+    switch (action & ADV2_ID_MASK) {
+    case 5:
+    case 6:
+        return is_windows() ? RALT : LALT;
+    case 7:
+        return LSHIFT;
+    case 8:
+        return is_windows() ? LCTRL : LGUI;
+    case 9:
+        return RSHIFT;
+    default:
+        return 0;
+    }
+}
+
+static uint32_t mod_tap_tap_keycode(uint16_t action) {
+    switch (action & ADV2_ID_MASK) {
+    case 7: return TAB;
+    case 8: return ESCAPE;
+    case 9: return ENTER;
+    default: return 0;
+    }
+}
+
+static uint8_t pending_mod_tap_count(void) {
+    uint8_t count = 0;
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].phase == MOD_TAP_PENDING) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static void activate_mod_tap_hold(struct mod_tap_state *state) {
     if (state->hold_active) {
         return;
     }
 
-    state->hold_keycode = is_windows() ? RALT : LALT;
-    uint8_t *counter = nav_alt_hold_counter(state->hold_keycode);
+    int marker = find_mod_tap_marker(state);
+    if (marker >= 0) {
+        remove_deferred_input(marker);
+    }
+
+    state->hold_keycode = mod_tap_hold_keycode(state->action);
+    uint8_t *counter = mod_tap_hold_counter(state->hold_keycode);
+    if (state->hold_keycode == 0 || counter == NULL) {
+        LOG_ERR("Unsupported mod-tap hold action 0x%x", state->action);
+        reset_mod_tap(state);
+        return;
+    }
     if ((*counter)++ == 0) {
         emit_code(state->hold_keycode, true);
     }
     state->hold_active = true;
-    state->phase = NAV_DUAL_HOLDING;
+    state->phase = MOD_TAP_HOLDING;
 }
 
-static void release_nav_dual_hold(struct nav_dual_state *state) {
+static void release_mod_tap_hold(struct mod_tap_state *state) {
     if (!state->hold_active) {
         return;
     }
 
     state->hold_active = false;
-    uint8_t *counter = nav_alt_hold_counter(state->hold_keycode);
-    if (*counter > 0 && --(*counter) == 0) {
+    uint8_t *counter = mod_tap_hold_counter(state->hold_keycode);
+    if (counter != NULL && *counter > 0 && --(*counter) == 0) {
         emit_code(state->hold_keycode, false);
     }
 }
 
-static void nav_dual_hold_timer(struct k_work *item) {
+static void mod_tap_hold_timer(struct k_work *item) {
     struct k_work_delayable *delayable = k_work_delayable_from_work(item);
-    struct nav_dual_state *state =
-        CONTAINER_OF(delayable, struct nav_dual_state, hold_work);
+    struct mod_tap_state *state =
+        CONTAINER_OF(delayable, struct mod_tap_state, hold_work);
 
-    if (state->physically_pressed && state->phase == NAV_DUAL_PENDING) {
-        if (pending_nav_dual == state) {
-            pending_nav_dual = NULL;
+    if (state->physically_pressed && state->phase == MOD_TAP_PENDING) {
+        activate_mod_tap_hold(state);
+        if (pending_mod_tap_count() == 0) {
+            release_deferred_input_events();
         }
-        activate_nav_dual_hold(state);
-        release_captured_position_events();
     }
 }
 
-static void press_nav_dual_tap(struct nav_dual_state *state,
-                               struct zmk_behavior_binding_event event) {
-    state->phase = NAV_DUAL_TAP_DOWN;
-    handle_navigation(nav_dual_to_navigation(state->action), true, event);
+static void resolve_expired_mod_taps(int64_t now) {
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        struct mod_tap_state *state = &mod_taps[i];
+        if (state->phase == MOD_TAP_PENDING && state->physically_pressed &&
+            now - state->pressed_at >= MOD_TAP_TAPPING_TERM_MS) {
+            k_work_cancel_delayable(&state->hold_work);
+            activate_mod_tap_hold(state);
+        }
+    }
+
+    if (pending_mod_tap_count() == 0) {
+        release_deferred_input_events();
+    }
 }
 
-static void finish_nav_dual_tap(struct nav_dual_state *state,
-                                struct zmk_behavior_binding_event event) {
-    handle_navigation(nav_dual_to_navigation(state->action), false, event);
-    state->last_tap_released_at = k_uptime_get();
-    reset_nav_dual(state);
+static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event) {
+    uint16_t navigation = mod_tap_to_navigation(action);
+    if (navigation != 0) {
+        handle_navigation(navigation, true, event);
+        handle_navigation(navigation, false, event);
+    } else {
+        uint32_t keycode = mod_tap_tap_keycode(action);
+        if (keycode != 0) {
+            tap_code(keycode);
+        }
+    }
 }
 
-static bool captured_event_releases_pending(void) {
-    if (pending_nav_dual == NULL || captured_position_event_count == 0) {
+static bool resolve_mod_tap_marker_as_tap(struct mod_tap_state *state) {
+    int marker = find_mod_tap_marker(state);
+    if (marker < 0) {
         return false;
     }
 
-    const struct zmk_position_state_changed *ev = &captured_position_events[0].data;
-    return !ev->state && ev->position == pending_nav_dual->position;
+    deferred_input_events[marker].type = DEFERRED_MOD_TAP;
+    return true;
 }
 
-static void release_captured_position_events(void) {
-    while (captured_position_event_count > 0) {
-        /* A newly replayed mod-tap press owns chronology until its release or 90 ms timeout. */
-        if (pending_nav_dual != NULL && !captured_event_releases_pending()) {
-            return;
+static void release_deferred_input_events(void) {
+    while (deferred_input_event_count > 0 && pending_mod_tap_count() == 0) {
+        struct deferred_input_event event = deferred_input_events[0];
+        for (uint8_t i = 1; i < deferred_input_event_count; i++) {
+            deferred_input_events[i - 1] = deferred_input_events[i];
         }
+        deferred_input_event_count--;
 
-        struct zmk_position_state_changed_event event = captured_position_events[0];
-        for (uint8_t i = 1; i < captured_position_event_count; i++) {
-            captured_position_events[i - 1] = captured_position_events[i];
+        if (event.type == DEFERRED_MOD_TAP) {
+            tap_mod_tap(event.mod_tap_action, event.binding_event);
+        } else if (event.type == DEFERRED_POSITION) {
+            ZMK_EVENT_RAISE_AFTER(event.position_event, adv2_mod_tap_capture);
+        } else {
+            LOG_ERR("Unresolved mod-tap marker reached replay");
         }
-        captured_position_event_count--;
-        ZMK_EVENT_RAISE_AFTER(event, adv2_mod_tap_capture);
     }
 }
 
 static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
-    if (ev == NULL || pending_nav_dual == NULL ||
-        ev->position == pending_nav_dual->position) {
+    if (ev == NULL) {
         return ZMK_EV_EVENT_BUBBLE;
     }
 
-    if (captured_position_event_count >= ADV2_CAPTURED_POSITION_EVENTS) {
+    resolve_expired_mod_taps(k_uptime_get());
+    if (pending_mod_tap_count() == 0 || is_mod_tap_position(ev->position)) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    if (deferred_input_event_count >= ADV2_CAPTURED_POSITION_EVENTS) {
         LOG_ERR("QMK mod-tap capture buffer full");
         return -ENOMEM;
     }
 
-    captured_position_events[captured_position_event_count++] =
-        copy_raised_zmk_position_state_changed(ev);
+    struct deferred_input_event *deferred =
+        &deferred_input_events[deferred_input_event_count++];
+    deferred->type = DEFERRED_POSITION;
+    deferred->position_event = copy_raised_zmk_position_state_changed(ev);
     return ZMK_EV_EVENT_CAPTURED;
 }
 
-static int handle_nav_dual(uint16_t action, bool pressed,
-                           struct zmk_behavior_binding_event event) {
-    struct nav_dual_state *state = nav_dual_for_action(action);
+static int handle_mod_tap(uint16_t action, bool pressed,
+                          struct zmk_behavior_binding_event event) {
+    struct mod_tap_state *state = mod_tap_for_event(action, event.position);
     if (state == NULL || event.position >= ADV2_MAX_POSITIONS) {
         return -EINVAL;
     }
 
     if (pressed) {
-        if (state->phase != NAV_DUAL_IDLE) {
+        if (state->phase != MOD_TAP_IDLE) {
             return ZMK_BEHAVIOR_OPAQUE;
         }
 
-        state->action = action;
-        state->position = event.position;
+        const int64_t now = k_uptime_get();
         state->physically_pressed = true;
 
-        if ((state->last_tap_released_at + NAV_DUAL_QUICK_TAP_MS) > k_uptime_get()) {
-            press_nav_dual_tap(state, event);
+        if (mod_tap_is_navigation(action) && pending_mod_tap_count() == 0 &&
+            deferred_input_event_count == 0 &&
+            now - state->last_tap_released_at <= NAV_REPEAT_WINDOW_MS) {
+            state->phase = MOD_TAP_REPEAT_DOWN;
+            handle_navigation(mod_tap_to_navigation(state->action), true, event);
             return ZMK_BEHAVIOR_OPAQUE;
         }
 
-        state->phase = NAV_DUAL_PENDING;
-        pending_nav_dual = state;
-        k_work_schedule(&state->hold_work, K_MSEC(NAV_DUAL_TAPPING_TERM_MS));
+        state->pressed_at = now;
+        state->phase = MOD_TAP_PENDING;
+        queue_mod_tap_marker(state, event);
+        k_work_schedule(&state->hold_work, K_MSEC(MOD_TAP_TAPPING_TERM_MS));
         return ZMK_BEHAVIOR_OPAQUE;
     }
 
     state->physically_pressed = false;
     switch (state->phase) {
-    case NAV_DUAL_PENDING:
+    case MOD_TAP_PENDING: {
         k_work_cancel_delayable(&state->hold_work);
-        if (pending_nav_dual == state) {
-            pending_nav_dual = NULL;
-        }
-        handle_navigation(nav_dual_to_navigation(state->action), true, event);
-        handle_navigation(nav_dual_to_navigation(state->action), false, event);
+        const uint16_t tap_action = state->action;
+        const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
         state->last_tap_released_at = k_uptime_get();
-        reset_nav_dual(state);
-        release_captured_position_events();
+        reset_mod_tap(state);
+
+        if (!tap_queued) {
+            tap_mod_tap(tap_action, event);
+        }
+        if (pending_mod_tap_count() == 0) {
+            release_deferred_input_events();
+        }
         break;
-    case NAV_DUAL_TAP_DOWN:
-        finish_nav_dual_tap(state, event);
+    }
+    case MOD_TAP_REPEAT_DOWN:
+        handle_navigation(mod_tap_to_navigation(state->action), false, event);
+        state->last_tap_released_at = k_uptime_get();
+        reset_mod_tap(state);
         break;
-    case NAV_DUAL_HOLDING:
-        release_nav_dual_hold(state);
-        reset_nav_dual(state);
+    case MOD_TAP_HOLDING:
+        release_mod_tap_hold(state);
+        reset_mod_tap(state);
         break;
-    case NAV_DUAL_IDLE:
+    case MOD_TAP_IDLE:
         break;
     }
 
@@ -1068,7 +1261,7 @@ static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
     const uint16_t action = binding->param1;
 
     if (action & ADV2_DUAL_FLAG) {
-        return handle_nav_dual(action, true, event);
+        return handle_mod_tap(action, true, event);
     }
 
     if (action & ADV2_NAV_FLAG) {
@@ -1083,7 +1276,7 @@ static int adv2_resolver_released(struct zmk_behavior_binding *binding,
     const uint16_t action = binding->param1;
 
     if (action & ADV2_DUAL_FLAG) {
-        return handle_nav_dual(action, false, event);
+        return handle_mod_tap(action, false, event);
     }
 
     if (action & ADV2_NAV_FLAG) {
@@ -1102,16 +1295,27 @@ static const struct behavior_driver_api adv2_resolver_driver_api = {
 };
 
 static int adv2_resolver_init(const struct device *dev) {
-    nav_duals[0].action = ADV2_DUAL_DELETE;
-    nav_duals[1].action = ADV2_DUAL_BACKSPACE;
-    nav_duals[0].last_tap_released_at = INT64_MIN / 2;
-    nav_duals[1].last_tap_released_at = INT64_MIN / 2;
-    reset_nav_dual(&nav_duals[0]);
-    reset_nav_dual(&nav_duals[1]);
-    k_work_init_delayable(&nav_duals[0].hold_work, nav_dual_hold_timer);
-    k_work_init_delayable(&nav_duals[1].hold_work, nav_dual_hold_timer);
-    pending_nav_dual = NULL;
-    captured_position_event_count = 0;
+    static const uint16_t actions[ADV2_MOD_TAP_COUNT] = {
+        ADV2_DUAL_DELETE, ADV2_DUAL_BACKSPACE, ADV2_DUAL_SHIFT_TAB,
+        ADV2_DUAL_CMD_ESCAPE, ADV2_DUAL_CMD_ESCAPE, ADV2_DUAL_SHIFT_ENTER,
+    };
+    static const int32_t positions[ADV2_MOD_TAP_COUNT] = {35, 38, 66, 67, 68, 69};
+
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        mod_taps[i].action = actions[i];
+        mod_taps[i].position = positions[i];
+        mod_taps[i].last_tap_released_at = INT64_MIN / 2;
+        reset_mod_tap(&mod_taps[i]);
+        k_work_init_delayable(&mod_taps[i].hold_work, mod_tap_hold_timer);
+    }
+    for (size_t i = 0; i < ARRAY_SIZE(mod_tap_hold_counts); i++) {
+        mod_tap_hold_counts[i] = 0;
+    }
+    deferred_input_event_count = 0;
+    horizontal_axis.position = -1;
+    horizontal_axis.action = 0;
+    vertical_axis.position = -1;
+    vertical_axis.action = 0;
 
     for (size_t i = 0; i < ARRAY_SIZE(semantic_dances); i++) {
         semantic_dances[i].id = i + 1;

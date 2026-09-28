@@ -2,6 +2,16 @@
 Here's all notable changes and commits to both the configuration repo and the base ZMK that the config repo builds against.
 
 Many thanks to all those who have submitted issues and pull requests to make this firmware better!
+
+## geekhunger layout
+
+### v0.2.0
+
+- Resolve short letter taps immediately on release; retain 170 ms for hold symbols.
+- Move all six dual-role keys to one parallel, time-only 90 ms resolver.
+- Use a 120 ms Delete/Backspace repeat window for tap, tap-and-hold.
+- Serialize overlapping opposite arrows before forwarding them to the host.
+
 ## Config repo
 
 11/7/2025 - Update README, replacing outdated layout editing information with current options [#768](https://github.com/KinesisCorporation/Adv360-Pro-ZMK/pull/768)
