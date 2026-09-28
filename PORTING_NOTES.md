@@ -12,6 +12,10 @@ unmodified Kinesis Advantage 360 Pro running ZMK.
 - Letter holds and all modifier-aware symbol decisions mirror the QMK source.
 - Windows and macOS use different host sequences for the same intended symbol.
 - QMK timing is preserved: 90 ms for modifier tap/hold and 170 ms for letters.
+- QMK's `IGNORE_MOD_TAP_INTERRUPT` is represented by ZMK's `tap-preferred`
+  decision rule for modifier tap-holds.
+- QMK's 90 ms sequential-tap window is represented by `quick-tap-ms = <90>`,
+  so tap, then press-and-hold repeats Backspace/Delete instead of becoming Alt.
 - German remains the required host keyboard layout.
 
 ## Deliberate hardware normalization

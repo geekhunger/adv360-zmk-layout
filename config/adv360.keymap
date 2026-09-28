@@ -22,12 +22,16 @@
             bindings = <&adv2>, <&adv2>;
         };
 
-        /* QMK TAPPING_TERM: 90 ms. Interruption resolves to the modifier. */
+        /*
+         * QMK TAPPING_TERM: 90 ms plus IGNORE_MOD_TAP_INTERRUPT.
+         * A second quick press keeps the tap key held for key repeat.
+         */
         adv2_mod_tap: adv2_modifier_hold_tap {
             compatible = "zmk,behavior-hold-tap";
             #binding-cells = <2>;
-            flavor = "hold-preferred";
+            flavor = "tap-preferred";
             tapping-term-ms = <90>;
+            quick-tap-ms = <90>;
             bindings = <&kp>, <&kp>;
         };
 
@@ -35,8 +39,9 @@
         adv2_nav_mod_tap: adv2_navigation_modifier_hold_tap {
             compatible = "zmk,behavior-hold-tap";
             #binding-cells = <2>;
-            flavor = "hold-preferred";
+            flavor = "tap-preferred";
             tapping-term-ms = <90>;
+            quick-tap-ms = <90>;
             bindings = <&kp>, <&adv2>;
         };
     };
