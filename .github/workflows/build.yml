@@ -2,9 +2,13 @@ on: [push, pull_request, workflow_dispatch]
 
 name: Build
 
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     container:
       image: zmkfirmware/zmk-build-arm:stable
     name: Build (Legacy)
@@ -62,7 +66,7 @@ jobs:
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2
   build-clique:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     container:
       image: zmkfirmware/zmk-build-arm:stable
     name: Build (Clique)
