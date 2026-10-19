@@ -5,6 +5,17 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.3.0
+
+- Restore the original physical right-side Mod key as a sequential, timed
+  Bluetooth control key without assigning any other previously unused 360 key.
+- Add a dedicated 1500 ms Bluetooth layer: Mod → NUM + 1–5 selects profiles
+  1–5, while Mod → Delete or Backspace clears the selected profile.
+- Let the NUM momentary key pass without consuming Bluetooth control; any other
+  key cancels the state and retains its normal lower-layer behavior.
+- Keep Bluetooth storage/advertising in standard ZMK and isolate this feature
+  from all existing typing, modifier, Backspace, arrow, and split logic.
+
 ### v0.2.8
 
 - Treat a timed-out Delete/Backspace hold as Alt only after a following

@@ -1,0 +1,5 @@
+description: Sequential Bluetooth profile control for the Advantage 360
+
+compatible: "geekhunger,behavior-adv360-bt-control"
+
+include: one_param.yaml

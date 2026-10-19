@@ -1,15 +1,31 @@
 #include <behaviors.dtsi>
 #include <dt-bindings/zmk/adv2_layout.h>
+#include <dt-bindings/zmk/adv360_bt_control.h>
 #include <dt-bindings/zmk/keys.h>
 
 #define MACOS 0
 #define WINDOWS 1
 #define NUMPAD 2
+#define BLUETOOTH 3
+
+#define BTC &btctl ADV360_BT_CANCEL
+#define BTA &btctl ADV360_BT_ARM
+#define BTS1 &btctl ADV360_BT_SELECT_1
+#define BTS2 &btctl ADV360_BT_SELECT_2
+#define BTS3 &btctl ADV360_BT_SELECT_3
+#define BTS4 &btctl ADV360_BT_SELECT_4
+#define BTS5 &btctl ADV360_BT_SELECT_5
+#define BTCLR &btctl ADV360_BT_CLEAR
 
 / {
     behaviors {
         adv2: adv2_resolver {
             compatible = "geekhunger,behavior-adv2-resolver";
+            #binding-cells = <1>;
+        };
+
+        btctl: adv360_bt_control {
+            compatible = "geekhunger,behavior-adv360-bt-control";
             #binding-cells = <1>;
         };
 
@@ -21,7 +37,7 @@
         macos_layer {
             display-name = "macOS";
             bindings = <
-                &none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none                                      &none &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &kp MINUS
+                &none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none                                      BTA &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &kp MINUS
                 &none &none &adv2 ADV2_W &adv2 ADV2_E &adv2 ADV2_R &adv2 ADV2_F &none   &none &adv2 ADV2_Y &adv2 ADV2_U &adv2 ADV2_I &adv2 ADV2_O &none &none
                 &none &adv2 ADV2_A &adv2 ADV2_S &adv2 ADV2_D &adv2 ADV2_T &adv2 ADV2_G &none   &adv2 ADV2_DUAL_DELETE &none   &none &adv2 ADV2_DUAL_BACKSPACE   &none &adv2 ADV2_H &adv2 ADV2_N &adv2 ADV2_K &adv2 ADV2_L &adv2 ADV2_P &none
                 &none &adv2 ADV2_Z &adv2 ADV2_X &adv2 ADV2_C &adv2 ADV2_V &adv2 ADV2_B   &kp LCTRL &none   &adv2 ADV2_J &adv2 ADV2_M &adv2 ADV2_COMMA &adv2 ADV2_DOT &adv2 ADV2_SLASH &none
@@ -32,7 +48,7 @@
         windows_layer {
             display-name = "Windows";
             bindings = <
-                &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
+                &trans &trans &trans &trans &trans &trans &none                                      &trans &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
@@ -43,11 +59,22 @@
         numpad_layer {
             display-name = "NUM";
             bindings = <
-                &none &none &none &none &none &none &none                                      &none &none &none &none &none &none &none
+                &none &none &none &none &none &none &none                                      &trans &none &none &none &none &none &none
                 &none &none &none &none &none &none &none                                      &none &none &none &none &none &none &none
                 &tog WINDOWS &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none   &none &adv2 ADV2_NAV_BACKSPACE   &none &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &none
                 &none &none &none &none &none &none   &trans &none   &none &none &kp COMMA &kp DOT &none &none
                 &none &none &none &none &none   &trans &none &trans   &none &kp RSHIFT &trans   &none &none &none &none &none
+            >;
+        };
+
+        bluetooth_layer {
+            display-name = "Bluetooth";
+            bindings = <
+                BTC BTC BTC BTC BTC BTC BTC                                      BTA BTC BTC BTC BTC BTC BTC
+                BTC BTC BTC BTC BTC BTC BTC                                      BTC BTC BTC BTC BTC BTC BTC
+                BTC BTS1 BTS2 BTS3 BTS4 BTS5 BTC   BTCLR BTC   BTC BTCLR   BTC BTC BTC BTC BTC BTC BTC
+                BTC BTC BTC BTC BTC BTC   BTC BTC   BTC BTC BTC BTC BTC BTC
+                BTC BTC BTC BTC BTC   BTC BTC BTC   BTC BTC &trans   BTC BTC BTC BTC BTC
             >;
         };
     };

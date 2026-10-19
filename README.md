@@ -25,12 +25,30 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - mehrere parallele Modifier-Ziele für schnelle Pfeil- und Buchstaben-Rolls
 - Weitergabe eines gelatchten Modifiers über überlappende Pfeil-Rollovers
 - saubere Serialisierung sich überlappender Pfeile derselben Achse
-- zusätzliche Advantage-360-Tasten auf allen Ebenen ohne Funktion
+- sequenzielle Bluetooth-Steuerung über die originale rechte `Mod`-Taste
+- alle übrigen zusätzlichen Advantage-360-Tasten auf allen Ebenen ohne Funktion
+
+## Bluetooth-Profile
+
+Die originale rechte `Mod`-Taste aktiviert für 1,5 Sekunden eine eigene
+Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
+
+- `Mod`, dann `NUM halten` + `1`–`5`: Bluetooth-Profil 1–5 auswählen. Ist das
+  Profil noch frei, beginnt ZMK anschließend mit dem Pairing.
+- `Mod`, dann `Delete` oder `Backspace`: Bindung des aktuell ausgewählten
+  Profils löschen, sodass es neu gekoppelt werden kann.
+- `Mod`, dann eine andere Taste: Bluetooth-Steuerung verwerfen und die Taste
+  normal ausführen.
+- `Mod` zweimal oder 1,5 Sekunden ohne Befehl: Bluetooth-Steuerung verwerfen.
+
+Die Profilzahlen liegen absichtlich auf den physischen NUM-Positionen `1`–`5`;
+die obere Zahlenreihe löst keine Bluetooth-Aktion aus.
 
 Die vollständige Portierungsvereinbarung und jede technische Abweichung stehen
-in [`PORTING_NOTES.md`](PORTING_NOTES.md). Der eigene, eng begrenzte Resolver
-liegt in
+in [`PORTING_NOTES.md`](PORTING_NOTES.md). Der eigene, eng begrenzte Resolver liegt in
 [`src/behaviors/behavior_adv2_resolver.c`](src/behaviors/behavior_adv2_resolver.c).
+Die davon getrennte Bluetooth-Steuerung liegt in
+[`src/behaviors/behavior_adv360_bt_control.c`](src/behaviors/behavior_adv360_bt_control.c).
 
 > `config/adv360.keymap` nicht durch einen generischen Keymap-Editor-Export
 > ersetzen. Ein visueller Editor kann die kombinierte Resolver-Logik nicht

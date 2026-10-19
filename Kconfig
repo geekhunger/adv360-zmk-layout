@@ -7,4 +7,13 @@ config ZMK_BEHAVIOR_ADV2_RESOLVER
       Reproduces the modifier-aware tap/hold behavior of the original
       Advantage 2 QMK keymap on an Advantage 360 Pro.
 
+config ZMK_BEHAVIOR_ADV360_BT_CONTROL
+    bool "Sequential Advantage 360 Bluetooth control"
+    default y
+    depends on BT
+    help
+      Adds a timed Bluetooth control layer which passes ordinary input through,
+      permits the NUM momentary layer, selects profiles 1-5, and clears the
+      selected profile from either Delete or Backspace.
+
 endmenu

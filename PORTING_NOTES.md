@@ -98,12 +98,30 @@ are not silently relocated in this first firmware.
 
 ## Deliberately disabled
 
-The eight physical positions that exist only on the Advantage 360 are `&none`
-on every layer: positions 6, 7, 20, 21, 34, 39, 60, and 75.
+Seven physical positions that exist only on the Advantage 360 remain `&none`
+on the ordinary layers: positions 6, 20, 21, 34, 39, 60, and 75. Position 7 is
+the original right-side Kinesis `Mod` key and now activates the dedicated
+Bluetooth control layer.
+
+## Sequential Bluetooth control
+
+- Position 7 arms layer 3 for 1500 ms and produces no host key.
+- The NUM momentary key passes through without consuming the control state.
+- With NUM active, physical home-row positions `1`–`5` select ZMK Bluetooth
+  profiles 0–4. The same positions without NUM cancel the state and retain
+  their ordinary `A`, `S`, `D`, `T`, and `G` behavior.
+- Either physical Delete/Alt or Backspace/Alt position clears only the selected
+  Bluetooth profile.
+- Every other press deactivates the Bluetooth layer and remains transparent to
+  the unchanged lower-layer binding. A second Mod press and the timeout also
+  cancel the state.
+- This is implemented separately in
+  `src/behaviors/behavior_adv360_bt_control.c`; it does not enter or alter the
+  typing resolver's tap/hold, pulse, rollover, or modifier state machines.
 
 ## Custom code and why it exists
 
-`src/behaviors/behavior_adv2_resolver.c` is the only custom runtime component.
+`src/behaviors/behavior_adv2_resolver.c` remains the custom typing component.
 Plain ZMK hold-tap can detect a hold, but the original QMK callbacks also
 inspect arbitrary combinations of Shift, Alt, Ctrl, and GUI, temporarily
 suppress selected modifiers, select an OS-specific sequence, and remap
@@ -111,6 +129,10 @@ Windows navigation. The resolver implements that compatibility logic, the
 release-driven semantic letter handling, the parallel 90 ms modifier state
 machine with balanced rolls and chord grace, Delete/Backspace repeat gesture,
 and arrow serialization.
+
+`src/behaviors/behavior_adv360_bt_control.c` is a separate, small runtime
+component for the timed Bluetooth layer described above. It calls ZMK's
+standard selected-profile APIs; bonding storage and advertising remain ZMK.
 
 Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
 power management, and the Advantage 360 board definition remain Kinesis ZMK.
@@ -126,6 +148,6 @@ fork's original connection interval, slave latency, and power behavior.
 
 ## Intentional implementation boundary
 
-Only the layout's semantic behaviors are custom. Matrix scanning, split
+Only the layout's semantic behaviors and Bluetooth command selection are custom. Matrix scanning, split
 transport, USB/Bluetooth HID, power management, and bootloader behavior remain
 unchanged Kinesis/ZMK code.
