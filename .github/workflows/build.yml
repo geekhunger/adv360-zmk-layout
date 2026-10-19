@@ -4,7 +4,7 @@ name: Build
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: zmkfirmware/zmk-build-arm:stable
     name: Build (Legacy)
@@ -62,7 +62,7 @@ jobs:
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2
   build-clique:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: zmkfirmware/zmk-build-arm:stable
     name: Build (Clique)

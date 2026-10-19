@@ -15,6 +15,8 @@ Many thanks to all those who have submitted issues and pull requests to make thi
   key cancels the state and retains its normal lower-layer behavior.
 - Keep Bluetooth storage/advertising in standard ZMK and isolate this feature
   from all existing typing, modifier, Backspace, arrow, and split logic.
+- Pin GitHub Actions to Ubuntu 24.04 while the `ubuntu-latest` alias migrates,
+  keeping the firmware build environment deterministic.
 
 ### v0.2.8
 
