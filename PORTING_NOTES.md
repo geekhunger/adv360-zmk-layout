@@ -40,7 +40,9 @@ interval, or peripheral latency.
   keys run in parallel, while repeated equal outputs are queued with a report
   gap so double letters remain distinct. A following physical event is held
   behind that repeated sequence until its second down/up pair is complete, so
-  Space or the next letter cannot overtake the second equal letter.
+  Space or the next letter cannot overtake the second equal letter. That
+  barrier watches only the repeated HID usage; unrelated in-flight letter
+  pulses cannot postpone later input until typing becomes idle.
   Modifier-aware branches that use
   QMK's explicit `key_report(state->count, ...)` also retain that repeat count;
   this includes repeated punctuation such as `Alt + .` producing repeated `!`.

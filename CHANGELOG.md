@@ -5,6 +5,15 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.3.2
+
+- Scope the repeated-key ordering barrier to the one HID usage whose second
+  pulse is still pending. Other simultaneous 12 ms letter pulses no longer
+  keep later physical events, Backspace, or modifier chords queued until the
+  user pauses typing.
+- Preserve the v0.3.1 double-letter ordering fix and all existing tap/hold,
+  Bluetooth, timing, and split-transport behavior.
+
 ### v0.3.1
 
 - Keep a following physical key behind an in-flight repeated identical HID

@@ -123,6 +123,7 @@ static struct zmk_position_state_changed_event
 static uint8_t pulse_deferred_event_count;
 static bool pulse_order_barrier_active;
 static bool pulse_order_barrier_replaying;
+static uint32_t pulse_order_barrier_keycode;
 static struct k_work_delayable pulse_order_barrier_work;
 
 enum deferred_input_type {
@@ -281,6 +282,7 @@ static void pulse_code(uint32_t keycode) {
         if (pulse->queued < UINT8_MAX) {
             pulse->queued++;
             pulse_order_barrier_active = true;
+            pulse_order_barrier_keycode = keycode;
         }
         return;
     }
@@ -292,10 +294,10 @@ static void pulse_code(uint32_t keycode) {
     k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
 }
 
-static bool tap_pulses_busy(void) {
+static bool tap_pulse_busy(uint32_t keycode) {
     for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
-        if (tap_pulses[i].active || tap_pulses[i].queued > 0) {
-            return true;
+        if (tap_pulses[i].keycode == keycode) {
+            return tap_pulses[i].active || tap_pulses[i].queued > 0;
         }
     }
     return false;
@@ -315,7 +317,7 @@ static int defer_pulse_position_event(const struct zmk_position_state_changed *e
 static void pulse_order_barrier_worker(struct k_work *item) {
     ARG_UNUSED(item);
 
-    if (tap_pulses_busy()) {
+    if (tap_pulse_busy(pulse_order_barrier_keycode)) {
         return;
     }
 
@@ -326,6 +328,7 @@ static void pulse_order_barrier_worker(struct k_work *item) {
          * barrier; in that case the same head must be retried before later input.
          */
         pulse_order_barrier_active = false;
+        pulse_order_barrier_keycode = 0;
         pulse_order_barrier_replaying = true;
         int result = ZMK_EVENT_RAISE_AFTER(pulse_deferred_events[0],
                                            adv2_mod_tap_capture);
@@ -344,8 +347,7 @@ static void pulse_order_barrier_worker(struct k_work *item) {
         if (result < 0) {
             LOG_ERR("Failed to replay repeated-key position event (%d)", result);
         }
-        if (tap_pulses_busy()) {
-            pulse_order_barrier_active = true;
+        if (pulse_order_barrier_active) {
             return;
         }
     }
@@ -354,7 +356,8 @@ static void pulse_order_barrier_worker(struct k_work *item) {
 }
 
 static void schedule_pulse_order_replay_if_ready(void) {
-    if (pulse_order_barrier_active && !tap_pulses_busy()) {
+    if (pulse_order_barrier_active &&
+        !tap_pulse_busy(pulse_order_barrier_keycode)) {
         k_work_reschedule(&pulse_order_barrier_work, K_NO_WAIT);
     }
 }
@@ -1980,6 +1983,7 @@ static int adv2_resolver_init(const struct device *dev) {
     pulse_deferred_event_count = 0;
     pulse_order_barrier_active = false;
     pulse_order_barrier_replaying = false;
+    pulse_order_barrier_keycode = 0;
     k_work_init_delayable(&pulse_order_barrier_work, pulse_order_barrier_worker);
     deferred_input_event_count = 0;
     horizontal_axis.position = -1;

@@ -22,8 +22,9 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - originale QMK-Wiederholungszahl auch für wiederholbare Modifier-Symbole
 - 170 ms für Buchstaben-Holds und zum Abschluss einer ununterbrochenen Tap-Serie
 - 120-ms-Fenster für „tippen, erneut tippen und halten“ bei Delete/Backspace
-- gepaarte 12-ms-HID-Pulse mit Reihenfolge-Barriere für gleiche Folgetasten
-  über BLE, damit Space keinen Doppelbuchstaben überholen kann
+- gepaarte 12-ms-HID-Pulse mit auf die wiederholte Taste begrenzter
+  Reihenfolge-Barriere über BLE, damit Space keinen Doppelbuchstaben überholt,
+  ohne Backspace oder Modifier hinter anderen Buchstabenpulsen anzustauen
 - mehrere parallele Modifier-Ziele für schnelle Pfeil- und Buchstaben-Rolls
 - Weitergabe eines gelatchten Modifiers über überlappende Pfeil-Rollovers
 - saubere Serialisierung sich überlappender Pfeile derselben Achse
