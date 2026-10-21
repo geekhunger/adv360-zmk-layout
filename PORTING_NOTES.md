@@ -28,9 +28,9 @@ interval, or peripheral latency.
 - `&trans` inherits from the active profile; `&none` deliberately emits nothing.
 - Letter holds and all modifier-aware symbol decisions mirror the QMK source.
 - Windows and macOS use different host sequences for the same intended symbol.
-- QMK timing is preserved at 90 ms for Cmd/Shift tap/hold and 170 ms for
-  letters. Delete/Backspace use the stricter action-driven rule below because
-  time-only Alt promotion could swallow a correction during a fast roll.
+- QMK timing is preserved at 90 ms for every dual-role modifier and 170 ms for
+  letters. An unused Delete/Backspace hold is retro-tapped on release, so the
+  90 ms Alt decision cannot swallow a solitary correction.
 - The letter keys use a custom semantic hold engine rather than ZMK hold-taps.
   Like QMK Tap Dance, equal consecutive taps accumulate until another key
   interrupts the dance or the 170 ms term expires. An uninterrupted key that is
@@ -46,10 +46,9 @@ interval, or peripheral latency.
   Modifier-aware branches that use
   QMK's explicit `key_report(state->count, ...)` also retain that repeat count;
   this includes repeated punctuation such as `Alt + .` producing repeated `!`.
-- Tab/Shift, both Esc/Cmd-or-Ctrl keys, and Enter/Shift share one parallel
-  90 ms resolver. Delete/Alt and Backspace/Alt share its release-order and
-  chord machinery but do not become Alt from elapsed time alone. Each key owns
-  its state, so simultaneous modifiers never accumulate serial delays.
+- Delete/Alt, Backspace/Alt, Tab/Shift, both Esc/Cmd-or-Ctrl keys, and
+  Enter/Shift share one parallel 90 ms resolver. Each key owns its state, so
+  simultaneous modifiers never accumulate serial delays.
 - Tap versus modifier is never inferred from keyboard side, opposite-hand use,
   or a fixed hand rule. Overlapping action keys use balanced release order: when
   the dual-role key is released first it remains a tap, while an action completed
@@ -81,13 +80,13 @@ interval, or peripheral latency.
   If the same key is pressed again during the 12 ms post-release grace, the
   preceding tap resolves immediately and the new press starts normally instead
   of being discarded.
-- Elapsed time alone never turns Delete/Backspace into Alt. Releasing the key
-  first always emits Delete/Backspace, and any other unresolved dual-role keys
-  are promoted before that action (for example Cmd+Backspace). If another
-  action completes while Delete/Backspace is still held, it becomes Alt for
-  that action. This follows the layout's actual rule that a modifier has no
-  effect until an action consumes it and prevents a correction tap from being
-  swallowed after a long or transport-delayed press.
+- At 90 ms a held Delete/Backspace becomes Alt, matching QMK and allowing its
+  modifier report to precede a following chord action. Releasing it without a
+  following physical action removes Alt and retro-taps Delete/Backspace, so a
+  slow or transport-delayed solitary correction is not swallowed. Before the
+  90 ms decision, releasing the key first emits its navigation tap and promotes
+  any older unresolved dual-role keys before that action (for example
+  Cmd+Backspace).
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before

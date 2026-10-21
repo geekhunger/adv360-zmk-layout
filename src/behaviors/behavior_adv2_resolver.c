@@ -1576,8 +1576,7 @@ static void mod_tap_hold_timer(struct k_work *item) {
     struct mod_tap_state *state =
         CONTAINER_OF(delayable, struct mod_tap_state, hold_work);
 
-    if (state->physically_pressed && state->phase == MOD_TAP_PENDING &&
-        !mod_tap_is_navigation(state->action)) {
+    if (state->physically_pressed && state->phase == MOD_TAP_PENDING) {
         activate_mod_tap_hold(state);
         if (unresolved_mod_tap_count() == 0) {
             release_deferred_input_events();
@@ -1591,7 +1590,6 @@ static void resolve_expired_mod_taps(int64_t now) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
         struct mod_tap_state *state = &mod_taps[i];
         if (state->phase == MOD_TAP_PENDING && state->physically_pressed &&
-            !mod_tap_is_navigation(state->action) &&
             now - state->pressed_at >= MOD_TAP_TAPPING_TERM_MS) {
             k_work_cancel_delayable(&state->hold_work);
             activate_mod_tap_hold(state);
@@ -1826,9 +1824,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         state->pressed_at = now;
         state->phase = MOD_TAP_PENDING;
         queue_mod_tap_marker(state, event);
-        if (!mod_tap_is_navigation(action)) {
-            k_work_schedule(&state->hold_work, K_MSEC(MOD_TAP_TAPPING_TERM_MS));
-        }
+        k_work_schedule(&state->hold_work, K_MSEC(MOD_TAP_TAPPING_TERM_MS));
         return ZMK_BEHAVIOR_OPAQUE;
     }
 

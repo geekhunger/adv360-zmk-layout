@@ -5,6 +5,17 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.3.3
+
+- Restore the original QMK 90 ms hold decision for Delete/Alt and
+  Backspace/Alt. This lets Alt reach the host before a following chord action
+  instead of being emitted almost simultaneously with that action.
+- Keep the unused-hold retro-tap safeguard: a Delete/Backspace key that crosses
+  90 ms but is released without a following physical action still produces its
+  navigation tap.
+- Preserve the scoped repeated-key barrier from v0.3.2 and all existing
+  Bluetooth and split-transport behavior.
+
 ### v0.3.2
 
 - Scope the repeated-key ordering barrier to the one HID usage whose second
