@@ -5,6 +5,20 @@ Many thanks to all those who have submitted issues and pull requests to make thi
 
 ## geekhunger layout
 
+### v0.3.1
+
+- Keep a following physical key behind an in-flight repeated identical HID
+  pulse, so fast double letters retain their order before Space or the next
+  letter instead of producing output such as `p p` from `pp `.
+- Make Delete/Backspace release-order driven: elapsed time alone no longer
+  turns either key into Alt. Releasing one produces its navigation action;
+  holding it through a following action promotes it to Alt for that action.
+- Resolve Cmd/Shift plus Delete/Backspace immediately when the navigation key
+  is released first, while preserving arbitrary multi-modifier chords.
+- Preserve the 120 ms tap-tap-hold deletion repeat, the 90 ms timing of the
+  other dual-role modifiers, the 170 ms semantic hold timing, Bluetooth
+  control, and split transport settings.
+
 ### v0.3.0
 
 - Restore the original physical right-side Mod key as a sequential, timed

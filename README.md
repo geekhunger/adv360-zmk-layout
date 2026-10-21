@@ -13,15 +13,17 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - Tap/Hold-Symbole und kombinierbare Modifier-Regeln aus dem QMK-Original
 - getrennte macOS-/Windows-Sequenzen für semantisch gleiche Sonderzeichen
 - Windows-Navigation als Gegenstück zum macOS-Verhalten
-- originale QMK-Timings: 90 ms für Modifier, 170 ms für Buchstaben
-- ein gemeinsamer paralleler 90-ms-Resolver für alle sechs Dual-Role-Tasten
+- originale QMK-Timings: 90 ms für Cmd/Shift, 170 ms für Buchstaben
+- ein gemeinsamer paralleler Resolver für alle sechs Dual-Role-Tasten; 90 ms
+  für Cmd/Shift und aktionsbasierte Alt-Entscheidung bei Delete/Backspace
 - ausbalancierte Roll-Erkennung über die Loslassreihenfolge statt Seitenheuristiken
 - 12-ms-Toleranz für knapp zu früh losgelassene Mehrfach-Modifier
 - originale QMK-Tap-Dance-Zählung für schnelle Doppelbuchstaben
 - originale QMK-Wiederholungszahl auch für wiederholbare Modifier-Symbole
 - 170 ms für Buchstaben-Holds und zum Abschluss einer ununterbrochenen Tap-Serie
 - 120-ms-Fenster für „tippen, erneut tippen und halten“ bei Delete/Backspace
-- gepaarte 12-ms-HID-Pulse mit Warteschlange für gleiche Folgetasten über BLE
+- gepaarte 12-ms-HID-Pulse mit Reihenfolge-Barriere für gleiche Folgetasten
+  über BLE, damit Space keinen Doppelbuchstaben überholen kann
 - mehrere parallele Modifier-Ziele für schnelle Pfeil- und Buchstaben-Rolls
 - Weitergabe eines gelatchten Modifiers über überlappende Pfeil-Rollovers
 - saubere Serialisierung sich überlappender Pfeile derselben Achse
