@@ -59,7 +59,9 @@ jobs:
       - name: USB report ownership regressions
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_usb.sh
       - name: Trace privacy and lifetime regressions
-        run: CC=gcc sh tests/native/run_trace.sh
+        run: |
+          CC=gcc sh tests/native/run_trace.sh
+          python3 tools/adv360_trace_collector.py --self-test
       - name: Apply diagnostic-only trace hooks
         run: git -C zmk apply "${GITHUB_WORKSPACE}/patches/zmk-scoped-timing-trace.patch"
       - name: West Zephyr export

@@ -117,3 +117,4 @@ index 4897b50..911fc3d 100644
 +            adv360_trace_usb(ADV_TRACE_USB_SUBMIT, (const uint8_t *)&hid_tx_report, len, err, 0);
              k_sem_give(&hid_sem);
          }
+ 
