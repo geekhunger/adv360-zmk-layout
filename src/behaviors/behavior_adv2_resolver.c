@@ -128,7 +128,7 @@ static struct pulse_deferred_event pulse_deferred_events[ADV2_CAPTURED_PULSE_EVE
 static uint8_t pulse_deferred_event_count;
 static bool pulse_order_barrier_active;
 static bool pulse_order_barrier_replaying;
-static bool pulse_order_replay_captured;
+static uint8_t pulse_replay_insert_index;
 static uint32_t pulse_order_barrier_keycode;
 static struct k_work_delayable pulse_order_barrier_work;
 
@@ -330,21 +330,25 @@ static bool tap_pulse_busy(uint32_t keycode) {
 
 static int defer_pulse_position_event(const struct zmk_position_state_changed *event,
                                       bool after_mod_tap_capture) {
-    if (pulse_order_barrier_replaying) {
-        pulse_order_replay_captured = true;
-        pulse_deferred_events[0].after_mod_tap_capture = after_mod_tap_capture;
-        return 0;
-    }
-
     if (pulse_deferred_event_count >= ADV2_CAPTURED_PULSE_EVENTS) {
         LOG_ERR("Repeated-key position buffer full");
         return -ENOMEM;
     }
 
-    pulse_deferred_events[pulse_deferred_event_count++] = (struct pulse_deferred_event){
+    /* A replay can recursively release older modifier-captured input. Those
+     * events are not the current replay head, and must precede the younger
+     * physical events already waiting in this queue. Keep discovery order.
+     */
+    uint8_t insert = pulse_order_barrier_replaying
+                         ? pulse_replay_insert_index++ : pulse_deferred_event_count;
+    for (uint8_t i = pulse_deferred_event_count; i > insert; i--) {
+        pulse_deferred_events[i] = pulse_deferred_events[i - 1];
+    }
+    pulse_deferred_events[insert] = (struct pulse_deferred_event){
         .event = copy_raised_zmk_position_state_changed(event),
         .after_mod_tap_capture = after_mod_tap_capture,
     };
+    pulse_deferred_event_count++;
     return 0;
 }
 
@@ -356,29 +360,24 @@ static void pulse_order_barrier_worker(struct k_work *item) {
     }
 
     while (pulse_deferred_event_count > 0) {
-        /*
-         * Keep the head in place until it has passed the semantic interrupter.
-         * A replay can itself resolve another repeated dance and reactivate the
-         * barrier; in that case the same head must be retried before later input.
+        /* Own a stable copy while replay may prepend captured input. If this
+         * event itself is captured again, defer_pulse_position_event inserts
+         * that exact event and its unfinished stage in chronological order.
          */
-        pulse_order_barrier_active = false;
-        pulse_order_barrier_keycode = 0;
-        pulse_order_barrier_replaying = true;
-        pulse_order_replay_captured = false;
-        int result = pulse_deferred_events[0].after_mod_tap_capture
-                         ? replay_after_mod_tap_capture(&pulse_deferred_events[0].event)
-                         : ZMK_EVENT_RAISE_AT(pulse_deferred_events[0].event, adv2_input);
-        pulse_order_barrier_replaying = false;
-
-        if (pulse_order_replay_captured) {
-            schedule_pulse_order_replay_if_ready();
-            return;
-        }
-
+        struct pulse_deferred_event replay = pulse_deferred_events[0];
         for (uint8_t i = 1; i < pulse_deferred_event_count; i++) {
             pulse_deferred_events[i - 1] = pulse_deferred_events[i];
         }
         pulse_deferred_event_count--;
+        pulse_order_barrier_active = false;
+        pulse_order_barrier_keycode = 0;
+        pulse_order_barrier_replaying = true;
+        pulse_replay_insert_index = 0;
+        int result = replay.after_mod_tap_capture
+                         ? replay_after_mod_tap_capture(&replay.event)
+                         : ZMK_EVENT_RAISE_AT(replay.event, adv2_input);
+        pulse_order_barrier_replaying = false;
+        pulse_replay_insert_index = 0;
 
         if (result < 0) {
             LOG_ERR("Failed to replay repeated-key position event (%d)", result);
@@ -2123,7 +2122,7 @@ static int adv2_resolver_init(const struct device *dev) {
     pulse_deferred_event_count = 0;
     pulse_order_barrier_active = false;
     pulse_order_barrier_replaying = false;
-    pulse_order_replay_captured = false;
+    pulse_replay_insert_index = 0;
     pulse_order_barrier_keycode = 0;
     k_work_init_delayable(&pulse_order_barrier_work, pulse_order_barrier_worker);
     deferred_input_event_count = 0;

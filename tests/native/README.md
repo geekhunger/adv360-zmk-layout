@@ -27,6 +27,9 @@ Coverage includes:
 - Blocking HID sends from 1 through 30 ms while words and corrections arrive.
 - Message-queue batches without a timer callback between every position: 3,906
   word/correction combinations plus 2,000 mixed 100-event sequences.
+- Nested modifier-queue releases during pulse replay: distinct letter presses
+  and arrow/Space releases must not be mistaken for the current replay head.
+  Timing sweeps also cover Delete/Backspace, delayed reports, and cleanup.
 - Single Backspace durations, modified Backspace repetitions, tap-tap-hold
   repeat, semantic holds, Windows navigation, and representative symbol mappings.
 - Delayed pulse modifier snapshots and 2,000 seeded mixed sequences of 100

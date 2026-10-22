@@ -207,8 +207,9 @@ of brief noise. Both compiled configurations must contain 5/5 or CI fails.
 Lowering the threshold reduces filtering of contact bounce as well as latency;
 this is deliberately not zero-delay/eager scanning.
 
-The 90 ms modifier and 170 ms semantic hold thresholds, all resolver code,
-the keymap, and transport patches remain byte-for-byte unchanged from v0.3.10.
+The 90 ms modifier and 170 ms semantic hold thresholds, the keymap, and
+transport patches remain unchanged from v0.3.10. The separate resolver
+queue correction below does not change gesture classification or bindings.
 The correction affects both physical scanners, so both halves require updating.
 This ordinary build contains no scoped-trace instrumentation or capture interface;
 the temporary v0.3.10-trace1 source, release and local recordings remain archived.
@@ -222,3 +223,26 @@ Additional audit found a separate USB timeout/suspend report-loss path and
 overflow-only split queue loss cases. They are not mixed into this narrow change:
 the recorded Backspaces had no such errors. Fault-injection evidence is retained
 locally for subsequent transport work if needed.
+
+## Nested pulse replay ownership (v0.3.11)
+
+An independent resolver regression reproduced a lost letter press and lost
+arrow/Space release after overlapping repeated letters and a dual-role key.
+While a repeated-pulse head was replaying, the old code treated *every* nested
+capture as that same head. Older events recursively released from the modifier
+queue were therefore discarded instead of stored. This can leave an arrow
+logically down even though its physical release has already arrived.
+
+The worker now removes its head into a stable local copy before dispatch.
+Every recapture stores the actual event plus its unfinished processing stage.
+An insertion cursor keeps recursively released older events in discovery order
+ahead of the younger tail; merely appending them would invert presses/releases.
+A newly activated pulse barrier still pauses replay until its pulses finish.
+No timing constants, modifier rules, queue sizes, or key bindings change.
+
+Native regressions reproduce the failure on the parent resolver and verify
+release cleanup, letter counts, event ordering, and both listener orders after
+the fix. The tested targets include all four arrows, Space, Delete and Backspace.
+The minimal case directly established lost arrow/Space releases, not the reported
+Backspace stall. Queue overflow and real USB/BLE scheduling are not simulated
+away by these tests, so hardware symptom resolution remains unverified.

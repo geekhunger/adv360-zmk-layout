@@ -512,6 +512,127 @@ static void test_batched_mixed_cleanup(void) {
         if(failures!=before){fprintf(stderr,"  batched cleanup seed %u\n",seed);return;}
     }
 }
+static void nested_replay_sequence(int target, int pre, int step, int report_delay) {
+    fresh();hid_report_delay_ms=report_delay;
+    key(1000,43,true);key(1000+pre,43,false);key(1000+2*pre,43,true);
+    const int t=1000+3*pre;
+    key(t,target,true);key(t+step,42,true);key(t+2*step,69,true);
+    key(t+3*step,42,false);key(t+4*step,42,true);key(t+5*step,44,true);
+    key(t+6*step,target,false);key(t+7*step,69,false);
+    key(t+8*step,42,false);key(t+9*step,43,false);key(t+10*step,44,false);
+}
+static void check_nested_replay_output(int target) {
+    settled();
+    CHECK(downs(L,-1)==2);CHECK(downs(P,-1)==1);
+    size_t p_down=output_count,p_up=output_count;
+    unsigned p_releases=0;
+    for(size_t i=0;i<output_count;i++)if(outputs[i].code==P) {
+        if(outputs[i].down)p_down=i;
+        else {p_up=i;p_releases++;}
+    }
+    CHECK(p_releases==1);CHECK(p_down<p_up);
+    uint32_t navigation=0;
+    switch(target) {
+    case 71: navigation=LEFT;break;
+    case 72: navigation=DOWN_ARROW;break;
+    case 73: navigation=UP_ARROW;break;
+    case 74: navigation=RIGHT;break;
+    case 65: navigation=SPACE;break;
+    }
+    if(navigation) {
+        bool down=false;unsigned presses=0,releases=0;
+        size_t target_down=output_count,target_up=output_count;
+        for(size_t i=0;i<output_count;i++)if(outputs[i].code==navigation) {
+            if(outputs[i].down){CHECK(!down);down=true;presses++;target_down=i;}
+            else {CHECK(down);down=false;releases++;target_up=i;}
+        }
+        CHECK(presses==1);CHECK(releases==1);CHECK(!down);
+        CHECK(target_down<target_up);
+    }
+}
+static void test_nested_replay_keeps_distinct_events(void) {
+    const int targets[]={71,72,73,74,65};
+    for(size_t i=0;i<ARRAY_SIZE(targets);i++) {
+        /* First double L opens a pulse barrier. While replaying its backlog,
+         * Shift/Enter-up releases captured K/P/target events; the second K
+         * opens another barrier. P-down and target-up are DISTINCT nested
+         * captures, not another capture of the Shift/Enter-up replay head.
+         * A one-bit "head captured again" flag silently dropped both events.
+         * 30 ms first taps; second K is down 12 ms with a 6 ms release gap.
+         */
+        unsigned before=failures;
+        nested_replay_sequence(targets[i],30,6,4);
+        check_nested_replay_output(targets[i]);
+        if(failures!=before)fprintf(stderr,"  nested replay target %d\n",targets[i]);
+    }
+}
+static void test_nested_replay_timing_sweep(void) {
+    const int targets[]={35,38,71,72,73,74,65};
+    const int report_delays[]={0,1,2,4,8,22,30};
+    const int first_tap_steps[]={16,30,50};
+    const int roll_steps[]={6,8,16,20};
+    for(size_t a=0;a<ARRAY_SIZE(targets);a++)
+    for(size_t d=0;d<ARRAY_SIZE(report_delays);d++)
+    for(size_t p=0;p<ARRAY_SIZE(first_tap_steps);p++)
+    for(size_t s=0;s<ARRAY_SIZE(roll_steps);s++) {
+        unsigned before=failures;
+        nested_replay_sequence(targets[a],first_tap_steps[p],roll_steps[s],report_delays[d]);
+        check_nested_replay_output(targets[a]);
+        if(failures!=before) {
+            fprintf(stderr,"  nested target %d first step %d roll step %d report delay %d\n",
+                    targets[a],first_tap_steps[p],roll_steps[s],report_delays[d]);
+            return;
+        }
+    }
+}
+static void test_nested_replay_fifo_contract(void) {
+    fresh();
+    /* Model the queue immediately AFTER its head was removed for replay.
+     * K-up/L-up/P-up already wait in the tail. Replaying Shift/Enter-up
+     * discovers older P-down and target-up, then recaptures the head itself.
+     * All three must precede that tail, in discovery order, with their own
+     * processing-stage flags. Appending would place P-up before P-down.
+     */
+    const struct zmk_position_state_changed tail[]={
+        {.position=42,.state=false,.timestamp=1138},
+        {.position=43,.state=false,.timestamp=1144},
+        {.position=44,.state=false,.timestamp=1150},
+    };
+    const struct zmk_position_state_changed nested[]={
+        {.position=44,.state=true,.timestamp=1120},
+        {.position=72,.state=false,.timestamp=1126},
+        {.position=69,.state=false,.timestamp=1132},
+    };
+    for(size_t i=0;i<ARRAY_SIZE(tail);i++)CHECK(defer_pulse_position_event(&tail[i],false)==0);
+    pulse_order_barrier_replaying=true;
+    for(size_t i=0;i<ARRAY_SIZE(nested);i++)CHECK(defer_pulse_position_event(&nested[i],i<2)==0);
+    CHECK(pulse_deferred_event_count==ARRAY_SIZE(nested)+ARRAY_SIZE(tail));
+    for(size_t i=0;i<ARRAY_SIZE(nested)+ARRAY_SIZE(tail);i++) {
+        const struct zmk_position_state_changed *expected=
+            i<ARRAY_SIZE(nested)?&nested[i]:&tail[i-ARRAY_SIZE(nested)];
+        const struct pulse_deferred_event *actual=&pulse_deferred_events[i];
+        CHECK(actual->event.data.position==expected->position);
+        CHECK(actual->event.data.state==expected->state);
+        CHECK(actual->event.data.timestamp==expected->timestamp);
+        CHECK(actual->after_mod_tap_capture==(i<2));
+    }
+
+    fresh();
+    for(unsigned i=0;i<ADV2_CAPTURED_PULSE_EVENTS-1;i++) {
+        struct zmk_position_state_changed ev={.position=80+i,.state=true,.timestamp=i};
+        CHECK(defer_pulse_position_event(&ev,false)==0);
+    }
+    pulse_order_barrier_replaying=true;
+    CHECK(defer_pulse_position_event(&nested[0],true)==0);
+    CHECK(pulse_deferred_event_count==ADV2_CAPTURED_PULSE_EVENTS);
+    struct pulse_deferred_event snapshot[ADV2_CAPTURED_PULSE_EVENTS];
+    memcpy(snapshot,pulse_deferred_events,sizeof(snapshot));
+    CHECK(defer_pulse_position_event(&nested[1],true)==-ENOMEM);
+    CHECK(pulse_deferred_event_count==ADV2_CAPTURED_PULSE_EVENTS);
+    CHECK(memcmp(snapshot,pulse_deferred_events,sizeof(snapshot))==0);
+    CHECK(errors==1); /* Expected overflow diagnostic; no overwritten event. */
+    fresh();
+}
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -551,6 +672,9 @@ int main(void) {
     run("50000 mixed events without resolver reset",test_long_session_without_reset);
     run("batched word corrections without intervening timer work",test_batched_word_corrections);
     run("batched mixed input leaves no held keys or queued events",test_batched_mixed_cleanup);
+    run("nested replay preserves distinct letter presses and navigation releases",test_nested_replay_keeps_distinct_events);
+    run("nested replay timing and chronology sweep",test_nested_replay_timing_sweep);
+    run("nested replay preserves FIFO tail and rejects queue overflow",test_nested_replay_fifo_contract);
     printf("%u failed assertions\n",failures);
     return failures?1:0;
 }
