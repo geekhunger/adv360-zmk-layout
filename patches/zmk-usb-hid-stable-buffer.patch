@@ -62,13 +62,15 @@ diff --git a/app/src/usb_hid.c b/app/src/usb_hid.c
 diff --git a/app/src/usb.c b/app/src/usb.c
 --- a/app/src/usb.c
 +++ b/app/src/usb.c
-@@ -75,6 +75,10 @@ void usb_status_cb(enum usb_dc_status_code status, const uint8_t *params) {
+@@ -75,6 +75,12 @@ void usb_status_cb(enum usb_dc_status_code status, const uint8_t *params) {
  #endif
      usb_status = status;
++#if IS_ENABLED(CONFIG_ZMK_USB)
 +    if (status == USB_DC_RESET || status == USB_DC_DISCONNECTED) {
 +        /* The controller aborted DMA; do not retain its semaphore forever. */
 +        zmk_usb_hid_reset_transport();
 +    }
++#endif
      if (zmk_usb_get_conn_state() == ZMK_USB_CONN_HID) {
          is_configured |= usb_status == USB_DC_CONFIGURED;
      } else {
