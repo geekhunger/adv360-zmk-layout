@@ -47,12 +47,9 @@ jobs:
       - name: Apply split transport backpressure patch
         run: |
           patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
-          if git -C zmk apply --reverse --check "$patch_file"; then
-            echo "Split transport backpressure patch is already present in the restored cache."
-          else
-            git -C zmk apply --check "$patch_file"
-            git -C zmk apply "$patch_file"
-          fi
+          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c
+          git -C zmk apply --check "$patch_file"
+          git -C zmk apply "$patch_file"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
@@ -112,12 +109,9 @@ jobs:
       - name: Apply split transport backpressure patch
         run: |
           patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
-          if git -C zmk apply --reverse --check "$patch_file"; then
-            echo "Split transport backpressure patch is already present in the restored cache."
-          else
-            git -C zmk apply --check "$patch_file"
-            git -C zmk apply "$patch_file"
-          fi
+          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c
+          git -C zmk apply --check "$patch_file"
+          git -C zmk apply "$patch_file"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
