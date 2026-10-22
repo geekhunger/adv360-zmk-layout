@@ -2,6 +2,10 @@
 
 target_include_directories(app PRIVATE include)
 
+if(CONFIG_ADV360_PROFILE_OS)
+  target_sources(app PRIVATE src/adv360_profile_os.c)
+endif()
+
 target_sources_ifdef(CONFIG_ADV360_SCOPED_TRACE app PRIVATE src/diagnostics/adv360_trace.c)
 
 if(CONFIG_ZMK_BEHAVIOR_ADV2_RESOLVER)

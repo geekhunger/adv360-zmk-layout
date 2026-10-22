@@ -68,6 +68,32 @@ Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
 Die Profilzahlen liegen absichtlich auf den physischen NUM-Positionen `1`–`5`;
 die obere Zahlenreihe löst keine Bluetooth-Aktion aus.
 
+### Mac-/Windows-Auswahl je Bluetooth-Profil
+
+`NUM halten` + `Esc tippen` schaltet wie bisher macOS ↔ Windows um. Die Auswahl
+wird jetzt dem aktuell ausgewählten Bluetooth-Profil (1–5) zugeordnet. Beim
+Profilwechsel und nach einem Neustart wird dessen Auswahl wiederhergestellt.
+Noch nicht konfigurierte Profile verwenden macOS.
+
+Auf ausdrücklichen Wunsch gilt die Zuordnung **auch beim Tippen über USB**:
+NUM + ESC ändert auch dann das aktuell ausgewählte Bluetooth-Profil. Es gibt
+keine eigene USB-Auswahl und keine automatische Betriebssystemerkennung.
+Ein Wechsel des Bluetooth-Profils ändert daher auch bei USB-Ausgabe die Ebene.
+
+Die Auswahl wirkt sofort im RAM. Dauerhaft gespeichert wird im Hintergrund
+nach der üblichen ZMK-Speicherverzögerung (29,5 Sekunden), nicht während aktiver
+Eingabe. Bei laufender Eingabe wird der Speicherversuch erneut verschoben.
+Nach dem Einstellen deshalb mindestens eine Minute ohne Eingaben eingeschaltet
+lassen, bevor die Tastatur ausgeschaltet wird. Ein sofortiges Ausschalten kann
+die letzte Auswahl verlieren. Profilwechsel und Wiederverbinden schreiben
+selbst nichts in den Flash. Das Löschen einer Bluetooth-Kopplung lässt die
+OS-Auswahl des Slots bestehen; beim neuen Gerät gegebenenfalls NUM + ESC nutzen.
+
+Das getrennte Modul `src/adv360_profile_os.c` beobachtet ausschließlich
+Profil- und Layerwechsel. Keymap, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
+NUM-Medienfunktionen und Entprellung bleiben unverändert. Die vorhandene
+Diagnosefunktion bleibt wie im vorherigen Build standardmäßig inaktiv.
+
 Die vollständige Portierungsvereinbarung und jede technische Abweichung stehen
 in [`PORTING_NOTES.md`](PORTING_NOTES.md). Der eigene, eng begrenzte Resolver liegt in
 [`src/behaviors/behavior_adv2_resolver.c`](src/behaviors/behavior_adv2_resolver.c).
@@ -83,7 +109,7 @@ Die davon getrennte Bluetooth-Steuerung liegt in
 Jeder Push startet den Workflow **Build**. Nach erfolgreichem Lauf:
 
 1. Den neuesten erfolgreichen Lauf unter **Actions → Build** öffnen.
-2. Das Artefakt `firmware-no-clique` herunterladen.
+2. Das Artefakt `firmware-profile-os` herunterladen.
 3. Das ZIP entpacken. Es enthält zusammengehörige `left.uf2` und `right.uf2`.
 
 Der Workflow baut beide Hälften auf Basis von Kinesis V3.0 und dessen

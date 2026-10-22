@@ -1,5 +1,15 @@
 menu "Geekhunger Advantage 360 layout"
 
+config ADV360_PROFILE_OS
+    bool "Remember macOS/Windows separately for each Bluetooth profile"
+    default y
+    depends on ZMK_BLE && SETTINGS
+    depends on !ZMK_SPLIT || ZMK_SPLIT_ROLE_CENTRAL
+    help
+      Observe the existing Windows layer toggle without changing key handling.
+      The selected Bluetooth slot owns the choice even while USB is active.
+      Save changes in the background, outside the input work queue.
+
 config ADV360_SCOPED_TRACE
     bool "Explicitly armed Alt/Delete/Backspace and NUM trace"
     default n
