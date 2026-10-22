@@ -31,6 +31,25 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - sequenzielle Bluetooth-Steuerung über die originale rechte `Mod`-Taste
 - alle übrigen zusätzlichen Advantage-360-Tasten auf allen Ebenen ohne Funktion
 
+## Medien und Beleuchtung
+
+Diese NUM-Belegungen gelten gleichermaßen unter macOS und Windows:
+
+| Gehaltene Tasten | Aktion |
+| --- | --- |
+| NUM + Pfeil links/rechts | Vorheriger/nächster Titel |
+| NUM + Pfeil runter/hoch | Lautstärke verringern/erhöhen |
+| NUM + Leertaste | Wiedergabe/Pause |
+| NUM + Shift + Pfeil runter/hoch | Bildschirmhelligkeit verringern/erhöhen |
+| NUM + Shift + Pfeil links/rechts | Tastaturbeleuchtung verringern/erhöhen |
+
+Beide Shift-Tasten funktionieren in NUM als reine Modifier. Ohne NUM bleiben
+ihre Tab-/Enter-Funktionen unverändert. Links/rechts entsprechen den bisherigen
+QMK-Medientasten `KC_MEDIA_PREV_TRACK`/`KC_MEDIA_NEXT_TRACK`, nicht einem
+Zeitsprung innerhalb eines Titels. Die Bildschirmhelligkeit wird als normaler
+HID-Befehl gesendet; Unterstützung hängt von Rechner, Betriebssystem und Display
+ab. Die Tastaturbeleuchtung steuert der verwendete ZMK-Fork auf beiden Hälften.
+
 ## Bluetooth-Profile
 
 Die originale rechte `Mod`-Taste aktiviert für 1,5 Sekunden eine eigene

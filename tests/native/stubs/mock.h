@@ -16,7 +16,7 @@
 #define K_MSEC(x) (x)
 #define K_NO_WAIT 0
 
-struct device { int unused; };
+struct device { const void *config; void *data; };
 struct k_work { void (*handler)(struct k_work *); };
 struct k_work_delayable { struct k_work work; int64_t due; uint64_t order; bool scheduled; };
 void mock_error(const char *format, ...);
@@ -30,7 +30,7 @@ static inline struct k_work_delayable *k_work_delayable_from_work(struct k_work 
     return CONTAINER_OF(w, struct k_work_delayable, work);
 }
 
-struct zmk_behavior_binding { uint32_t param1; };
+struct zmk_behavior_binding { uint32_t param1; uint32_t param2; const char *behavior_dev; };
 struct zmk_behavior_binding_event { int32_t position; int64_t timestamp; };
 struct behavior_driver_api {
     int (*binding_pressed)(struct zmk_behavior_binding *, struct zmk_behavior_binding_event);
@@ -64,4 +64,9 @@ copy_raised_zmk_position_state_changed(const struct zmk_position_state_changed *
 }
 int raise_zmk_keycode_state_changed_from_encoded(uint32_t, bool, int64_t);
 uint8_t zmk_hid_get_explicit_mods(void);
+typedef uint8_t zmk_mod_flags_t;
+int zmk_hid_masked_modifiers_set(zmk_mod_flags_t mods);
+int zmk_hid_masked_modifiers_clear(void);
+const struct device *zmk_behavior_get_binding(const char *name);
+int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *, struct zmk_behavior_binding_event, bool);
 bool zmk_keymap_layer_active(uint8_t layer);

@@ -68,6 +68,7 @@ jobs:
         run: |
           nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
           sh tests/native/check_firmware_symbols.sh build/left/zephyr/zmk.elf "$nm_tool"
+          python3 tests/native/check_num_media.py --compiled build/left/zephyr/zephyr.dts --dtlib-source zephyr/scripts/dts/python-devicetree/src
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)
@@ -144,6 +145,7 @@ jobs:
         run: |
           nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
           sh tests/native/check_firmware_symbols.sh build/left/zephyr/zmk.elf "$nm_tool"
+          python3 tests/native/check_num_media.py --compiled build/left/zephyr/zephyr.dts --dtlib-source zephyr/scripts/dts/python-devicetree/src
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)

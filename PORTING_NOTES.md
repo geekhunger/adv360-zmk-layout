@@ -124,6 +124,28 @@ Backspace delay has the same cause. Real-device comparison remains required.
   ambiguous host-side Left+Right or Up+Down states.
 - German remains the required host keyboard layout.
 
+## NUM media controls (2026-10-22)
+
+The NUM layer adds previous/next track on Left/Right, volume on Down/Up, and
+play/pause on Space. Either Shift morphs Down/Up into display brightness and
+Left/Right into keyboard backlight adjustment. Previous/next matches the QMK
+source's media-track actions; it is not seek/rewind within the current track.
+The formerly disabled left Shift/Tab position becomes plain LSHIFT in NUM,
+matching the existing plain RSHIFT there. No base/Windows/Bluetooth position
+changes, additional key activation, or tap/hold timing changes are involved.
+
+These bindings use the pinned fork's standard `mod-morph`, `key-press` and
+`backlight` behaviors, not a new resolver action. The selected binding is fixed
+at key-down and released even if Shift or NUM comes up first. Selecting Shift
+is masked from the emitted media/brightness key. The fork's central backlight
+implementation propagates its state to the peripheral; display brightness is
+a host-dependent Consumer HID usage, with no OS-specific software shortcut.
+
+Native regressions execute the pinned real mod-morph source with the production
+resolver, covering both OS modes, both Shift keys, repeated presses, and release
+permutations. CI additionally checks the compiled devicetree bindings. Neither
+test demonstrates actual display support or physical backlight operation.
+
 ## Deliberate hardware normalization
 
 Only the source Advantage 2 wiring defects `F1↔F2`, `F4↔F5`, and `F7↔F8`

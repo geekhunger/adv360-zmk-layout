@@ -10,6 +10,12 @@
 #define ADV2_RESOLVER_SOURCE "../../src/behaviors/behavior_adv2_resolver.c"
 #endif
 #include ADV2_RESOLVER_SOURCE
+#undef DT_DRV_COMPAT
+#ifndef NUM_MOD_MORPH_SOURCE
+#define NUM_MOD_MORPH_SOURCE "../../../zmk/app/src/behaviors/behavior_mod_morph.c"
+#endif
+#include NUM_MOD_MORPH_SOURCE
+#include <dt-bindings/zmk/backlight.h>
 
 static int64_t now_ms;
 static uint64_t work_order;
@@ -18,6 +24,21 @@ static size_t worker_count;
 static unsigned errors, failures;
 static bool windows_mode, number_mode;
 static uint8_t hid_mods;
+static uint8_t masked_mods;
+static bool keymap_num_at_press[128];
+static unsigned backlight_inc,backlight_dec;
+static const struct behavior_mod_morph_config num_configs[4] = {
+    {{.behavior_dev="kp",.param1=C_PREV},{.behavior_dev="bl",.param1=BL_DEC_CMD},MOD_SHIFT,MOD_SHIFT},
+    {{.behavior_dev="kp",.param1=C_VOL_DN},{.behavior_dev="kp",.param1=C_BRI_DN},MOD_SHIFT,MOD_SHIFT},
+    {{.behavior_dev="kp",.param1=C_VOL_UP},{.behavior_dev="kp",.param1=C_BRI_UP},MOD_SHIFT,MOD_SHIFT},
+    {{.behavior_dev="kp",.param1=C_NEXT},{.behavior_dev="bl",.param1=BL_INC_CMD},MOD_SHIFT,MOD_SHIFT},
+};
+static struct behavior_mod_morph_data num_data[4];
+static const struct device num_devices[4] = {
+    {&num_configs[0],&num_data[0]}, {&num_configs[1],&num_data[1]},
+    {&num_configs[2],&num_data[2]}, {&num_configs[3],&num_data[3]},
+};
+static const char *num_names[]={"num_left","num_down","num_up","num_right"};
 static unsigned hid_report_delay_ms;
 static unsigned hid_mod_counts[8];
 static bool hid_keys[256], physical_keys[128];
@@ -57,6 +78,26 @@ int k_work_schedule(struct k_work_delayable *work, int delay) {
     return work->scheduled ? 0 : k_work_reschedule(work, delay);
 }
 uint8_t zmk_hid_get_explicit_mods(void) { return hid_mods; }
+int zmk_hid_masked_modifiers_set(zmk_mod_flags_t mods) { masked_mods=mods;return 0; }
+int zmk_hid_masked_modifiers_clear(void) { masked_mods=0;return 0; }
+const struct device *zmk_behavior_get_binding(const char *name) {
+    for(size_t i=0;i<4;i++)if(strcmp(name,num_names[i])==0)return &num_devices[i];
+    abort();
+}
+int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *binding,
+                                struct zmk_behavior_binding_event event,bool pressed) {
+    if(strcmp(binding->behavior_dev,"kp")==0)
+        return raise_zmk_keycode_state_changed_from_encoded(binding->param1,pressed,event.timestamp);
+    if(strcmp(binding->behavior_dev,"bl")==0) {
+        if(pressed) {
+            if(binding->param1==BL_INC_CMD)backlight_inc++;
+            else if(binding->param1==BL_DEC_CMD)backlight_dec++;
+            else abort();
+        }
+        return 0;
+    }
+    abort();
+}
 bool zmk_keymap_layer_active(uint8_t layer) {
     return layer == WINDOWS_LAYER ? windows_mode : layer == NUMPAD_LAYER && number_mode;
 }
@@ -75,7 +116,7 @@ int raise_zmk_keycode_state_changed_from_encoded(uint32_t encoded, bool down, in
         hid_keys[usage] = down;
     }
     if (output_count >= ARRAY_SIZE(outputs)) abort();
-    outputs[output_count++] = (struct output){time, code, down, hid_mods | SELECT_MODS(encoded)};
+    outputs[output_count++] = (struct output){time, code, down, (hid_mods & ~masked_mods) | SELECT_MODS(encoded)};
     now_ms += hid_report_delay_ms;
     return 0;
 }
@@ -92,6 +133,24 @@ static int dispatch_keymap(struct zmk_position_state_changed_event *ev) {
     int p = ev->data.position;
     struct zmk_behavior_binding binding = {.param1=semantic_at[p]};
     struct zmk_behavior_binding_event event = {.position=p, .timestamp=ev->data.timestamp};
+    if(ev->data.state)keymap_num_at_press[p]=number_mode;
+    if(p==70){number_mode=ev->data.state;return 0;}
+    if(keymap_num_at_press[p]) {
+        if(p>=71 && p<=74) {
+            binding.behavior_dev=num_names[p-71];
+            return ev->data.state ? on_mod_morph_binding_pressed(&binding,event)
+                                 : on_mod_morph_binding_released(&binding,event);
+        }
+        switch(p) {
+        case 65: emit_code(C_PP,ev->data.state);return 0;
+        case 66: emit_code(LSHIFT,ev->data.state);return 0;
+        case 69: emit_code(RSHIFT,ev->data.state);return 0;
+        case 38:
+            return handle_navigation(ADV2_NAV_BACKSPACE,ev->data.state,event);
+        case 67: break; /* NUM-transparent Cmd/Esc. */
+        default: return 0;
+        }
+    }
     for (size_t i=0; i<ARRAY_SIZE(mod_taps); i++) {
         if (mod_taps[i].position == p) binding.param1 = mod_taps[i].action;
     }
@@ -165,6 +224,10 @@ static void batch_key(int p, bool down) {
 static void fresh(void) {
     now_ms=1000; work_order=0; worker_count=0; errors=0; output_count=0;
     windows_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
+    masked_mods=0;backlight_inc=0;backlight_dec=0;
+    memset(num_data,0,sizeof(num_data));
+    for(size_t i=0;i<4;i++)behavior_mod_morph_init(&num_devices[i]);
+    memset(keymap_num_at_press,0,sizeof(keymap_num_at_press));
     memset(hid_mod_counts,0,sizeof(hid_mod_counts));
     memset(hid_keys,0,sizeof(hid_keys));
     memset(physical_keys,0,sizeof(physical_keys));
@@ -188,6 +251,8 @@ static void settled(void) {
     CHECK(deferred_input_event_count==0);
     CHECK(pulse_deferred_event_count==0);
     CHECK(!pulse_order_barrier_active);
+    CHECK(masked_mods==0);
+    for(size_t i=0;i<4;i++)CHECK(num_data[i].pressed_binding==NULL);
     for(size_t i=0;i<ARRAY_SIZE(mod_taps);i++) CHECK(mod_taps[i].phase==MOD_TAP_IDLE);
     for(size_t i=0;i<ARRAY_SIZE(hid_keys);i++) CHECK(!hid_keys[i]);
 }
@@ -633,6 +698,56 @@ static void test_nested_replay_fifo_contract(void) {
     CHECK(errors==1); /* Expected overflow diagnostic; no overwritten event. */
     fresh();
 }
+static void test_num_media_both_os(void) {
+    const uint32_t plain[]={C_PREV,C_VOL_DN,C_VOL_UP,C_NEXT};
+    const uint32_t bright[]={0,C_BRI_DN,C_BRI_UP,0};
+    for(int win=0;win<2;win++)for(int shift=0;shift<4;shift++)for(int arrow=0;arrow<4;arrow++) {
+        fresh();windows_mode=win;
+        key(1000,70,true);
+        if(shift&1)key(1010,66,true);
+        if(shift&2)key(1011,69,true);
+        for(int tap=0;tap<5;tap++) {
+            key(1020+tap*40,71+arrow,true);key(1040+tap*40,71+arrow,false);
+        }
+        if(shift&1)key(1230,66,false);
+        if(shift&2)key(1231,69,false);
+        key(1240,70,false);settled();
+        if(!shift)CHECK(downs(plain[arrow],0)==5);
+        else if(bright[arrow])CHECK(downs(bright[arrow],0)==5);
+        else {CHECK(backlight_dec==(arrow==0?5:0));CHECK(backlight_inc==(arrow==3?5:0));}
+        CHECK(downs(LEFT,-1)+downs(RIGHT,-1)+downs(UP_ARROW,-1)+downs(DOWN_ARROW,-1)==0);
+        CHECK(downs(BACKSPACE,-1)+downs(DELETE,-1)==0);
+    }
+    for(int win=0;win<2;win++) {
+        fresh();windows_mode=win;key(1000,70,true);
+        key(1010,65,true);key(1030,65,false);key(1040,70,false);settled();
+        CHECK(downs(C_PP,0)==1);CHECK(downs(SPACE,-1)==0);
+    }
+}
+static void test_num_media_rolls(void) {
+    const int shifts[]={66,69};
+    const int order[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
+    for(int win=0;win<2;win++)for(int s=0;s<2;s++)for(int first=0;first<2;first++)
+    for(int arrow=0;arrow<4;arrow++)for(int perm=0;perm<6;perm++) {
+        fresh();windows_mode=win;
+        key(1000,first?shifts[s]:70,true);
+        key(1010,first?70:shifts[s],true);
+        key(1020,71+arrow,true);
+        const int positions[]={70,shifts[s],71+arrow};
+        for(int i=0;i<3;i++)key(1040+i*20,positions[order[perm][i]],false);
+        settled();
+        if(arrow==0)CHECK(backlight_dec==1);
+        if(arrow==1)CHECK(downs(C_BRI_DN,0)==1);
+        if(arrow==2)CHECK(downs(C_BRI_UP,0)==1);
+        if(arrow==3)CHECK(backlight_inc==1);
+        CHECK(downs(TAB,-1)+downs(ENTER,-1)==0);
+        CHECK(downs(C_PREV,-1)+downs(C_NEXT,-1)+downs(C_VOL_DN,-1)+downs(C_VOL_UP,-1)==0);
+    }
+    fresh();key(1000,70,true);key(1010,73,true);key(1020,69,true);
+    advance(1600);CHECK(hid_keys[C_VOL_UP&0xffff]); /* Held action does not morph midway. */
+    key(1610,70,false);key(1620,73,false);key(1630,69,false);settled();
+    CHECK(downs(C_VOL_UP,0)==1);CHECK(downs(C_BRI_UP,-1)==0);
+}
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -675,6 +790,8 @@ int main(void) {
     run("nested replay preserves distinct letter presses and navigation releases",test_nested_replay_keeps_distinct_events);
     run("nested replay timing and chronology sweep",test_nested_replay_timing_sweep);
     run("nested replay preserves FIFO tail and rejects queue overflow",test_nested_replay_fifo_contract);
+    run("NUM media and both Shift keys in macOS and Windows",test_num_media_both_os);
+    run("NUM media keeps its press binding through Shift and NUM release rolls",test_num_media_rolls);
     printf("%u failed assertions\n",failures);
     return failures?1:0;
 }

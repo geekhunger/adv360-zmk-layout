@@ -36,6 +36,16 @@ Coverage includes:
   events each, plus 50,000 events without resetting the resolver. Once all
   physical keys are released and timers settle, the HID
   modifier counts, held keys, resolver states, and deferred queues must be empty.
+- NUM media and brightness selection under both OS layers and either/both Shift
+  keys, repeated presses, and all release permutations of NUM/Shift/the arrow.
+  The harness includes the pinned ZMK `behavior_mod_morph.c` directly. It records
+  backlight commands, not physical LED or split-radio effects. Keymap dispatch
+  retains each key's NUM state at press for release, like ZMK's layer cache.
+
+`check_num_media.py` runs before native tests. It verifies exactly six changed
+NUM positions against v0.3.11, both Shift selectors and all four morph bindings,
+and unchanged base, Windows and Bluetooth layers. CI also passes the built
+`zephyr.dts` and Zephyr's dtlib path to verify resolved phandles and HID usages.
 
 These tests verify software state and ordering. The artificial report delays do
 not reproduce real USB transfers, radio loss, matrix scanning, host key repeat,

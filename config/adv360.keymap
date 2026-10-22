@@ -2,6 +2,8 @@
 #include <dt-bindings/zmk/adv2_layout.h>
 #include <dt-bindings/zmk/adv360_bt_control.h>
 #include <dt-bindings/zmk/keys.h>
+#include <dt-bindings/zmk/modifiers.h>
+#include <dt-bindings/zmk/backlight.h>
 
 #define MACOS 0
 #define WINDOWS 1
@@ -27,6 +29,33 @@
         btctl: adv360_bt_control {
             compatible = "geekhunger,behavior-adv360-bt-control";
             #binding-cells = <1>;
+        };
+
+        // Shared NUM controls for macOS and Windows. Shift selects brightness;
+        // it is consumed by mod-morph, and the chosen action stays until release.
+        num_left: num_media_left {
+            compatible = "zmk,behavior-mod-morph";
+            #binding-cells = <0>;
+            bindings = <&kp C_PREV>, <&bl BL_DEC>;
+            mods = <(MOD_LSFT | MOD_RSFT)>;
+        };
+        num_down: num_media_down {
+            compatible = "zmk,behavior-mod-morph";
+            #binding-cells = <0>;
+            bindings = <&kp C_VOL_DN>, <&kp C_BRI_DN>;
+            mods = <(MOD_LSFT | MOD_RSFT)>;
+        };
+        num_up: num_media_up {
+            compatible = "zmk,behavior-mod-morph";
+            #binding-cells = <0>;
+            bindings = <&kp C_VOL_UP>, <&kp C_BRI_UP>;
+            mods = <(MOD_LSFT | MOD_RSFT)>;
+        };
+        num_right: num_media_right {
+            compatible = "zmk,behavior-mod-morph";
+            #binding-cells = <0>;
+            bindings = <&kp C_NEXT>, <&bl BL_INC>;
+            mods = <(MOD_LSFT | MOD_RSFT)>;
         };
 
     };
@@ -63,7 +92,7 @@
                 &none &none &none &none &none &none &none                                      &none &none &none &none &none &none &none
                 &tog WINDOWS &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none   &none &adv2 ADV2_NAV_BACKSPACE   &none &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &none
                 &none &none &none &none &none &none   &trans &none   &none &none &kp COMMA &kp DOT &none &none
-                &none &none &none &none &none   &trans &none &trans   &none &kp RSHIFT &trans   &none &none &none &none &none
+                &none &none &none &none &none   &kp C_PP &kp LSHIFT &trans   &none &kp RSHIFT &trans   &num_left &num_down &num_up &num_right &none
             >;
         };
 
