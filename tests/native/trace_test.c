@@ -27,9 +27,14 @@ static void k_spin_unlock(struct k_spinlock *x, k_spinlock_key_t key) {}
 static void k_msleep(int x) { mock_ms += x; }
 static bool device_is_ready(const struct device *d) { return true; }
 static int uart_poll_in(const struct device *d, unsigned char *c) { return -1; }
-static void uart_poll_out(const struct device *d, unsigned char c) {
-    assert(serial_count + 1 < sizeof(serial_output));
-    serial_output[serial_count++] = c; serial_output[serial_count] = 0;
+static int uart_fifo_fill(const struct device *d, const uint8_t *bytes, int length) {
+    static unsigned calls;
+    if (++calls % 4 == 0) return 0; /* Backpressure must not lose bytes. */
+    int written = length > 7 ? 7 : length;
+    assert(serial_count + written < sizeof(serial_output));
+    memcpy(serial_output + serial_count, bytes, written);
+    serial_count += written; serial_output[serial_count] = 0;
+    return written;
 }
 static int uart_line_ctrl_get(const struct device *d, int cmd, uint32_t *value) {
     *value = 1; return 0;
@@ -92,8 +97,10 @@ int main(void) {
     command("ADVTRACE DUMP"); assert(!active);
     assert(strstr(serial_output + before, "BEGIN 1 left 2 0\n"));
     assert(strstr(serial_output + before, "END\n"));
+    assert(strstr(serial_output + before, "T "));
     adv360_trace_position(ADV_TRACE_SCAN, 38, false, 0, 0); assert(used == 2);
     puts("PASS collection has no serial output; DUMP stops before exporting");
+    puts("PASS partial/temporarily full serial FIFO preserves exported bytes");
     puts("0 failed assertions");
     return 0;
 }

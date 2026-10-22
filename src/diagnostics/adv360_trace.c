@@ -103,10 +103,28 @@ void adv360_trace_usb(uint8_t stage, const uint8_t *report, size_t len,
     k_spin_unlock(&trace_lock, lock);
 }
 
-static void serial_line(const char *text) {
-    uint32_t dtr = 0;
-    if (uart_line_ctrl_get(trace_uart, UART_LINE_CTRL_DTR, &dtr) || !dtr) return;
-    while (*text) uart_poll_out(trace_uart, *text++);
+static bool serial_line(const char *text) {
+    /* The pinned CDC ACM poll_out overwrites old bytes on a full ring. Its
+     * fifo_fill instead returns the exact accepted byte count. There is one
+     * writer (this thread) and no UART IRQ callback competing for that FIFO.
+     * Export only: waiting here never runs in a key event or capture hook.
+     */
+    size_t remaining = strlen(text);
+    int64_t deadline = k_uptime_get() + 2000;
+    while (remaining) {
+        uint32_t dtr = 0;
+        if (uart_line_ctrl_get(trace_uart, UART_LINE_CTRL_DTR, &dtr) || !dtr) return false;
+        int sent = uart_fifo_fill(trace_uart, (const uint8_t *)text, remaining);
+        if (sent < 0) return false;
+        if (sent > 0) {
+            text += sent;
+            remaining -= sent;
+        } else {
+            if (k_uptime_get() >= deadline) return false;
+            k_msleep(1);
+        }
+    }
+    return true;
 }
 
 static const char *role(void) {
@@ -147,12 +165,12 @@ static void command(const char *text) {
     } else if (!strcmp(text, "ADVTRACE DUMP")) {
         stop_capture();
         snprintf(line, sizeof(line), "BEGIN 1 %s %u %u\n", role(), used, dropped);
-        serial_line(line);
+        if (!serial_line(line)) return;
         for (uint32_t i = 0; i < used; i++) {
             const struct trace_record *r = &records[i];
             snprintf(line, sizeof(line), "T %u %u %u %u %d %d\n",
                      r->us, r->stage, r->code, r->down, r->a, r->b);
-            serial_line(line);
+            if (!serial_line(line)) return;
         }
         serial_line("END\n");
     } else if (!strcmp(text, "ADVTRACE INFO")) {
