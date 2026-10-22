@@ -12,13 +12,40 @@ already removed those snapshots from its queue. The same upstream path can
 also block right-half matrix processing for up to 100 ms when its queue fills.
 
 `patches/zmk-split-notify-backpressure.patch` is applied by both GitHub Actions
-build jobs after `west update`. It permits a small bounded window of two
-outstanding position notifications, advances the queue from completion
-callbacks, retries temporary TX backpressure, and makes the full-queue fallback
-non-blocking. The right build has three Bluetooth TX contexts, leaving one
-outside the position window for other traffic. The patch does not change the
+build jobs after `west update`. It sends one snapshot per invocation, paces
+successful submissions by 4 ms, retries temporary TX backpressure after 1 ms,
+and makes the full-queue fallback non-blocking. It does not count outstanding
+notifications: a missing completion callback must not stop the split transport.
+The patch does not change the
 keymap, Space behavior, resolver semantics, tapping terms, BLE connection
 interval, or peripheral latency.
+
+## Local ZMK USB report-ownership patch
+
+`patches/zmk-usb-hid-stable-buffer.patch` protects each submitted USB report
+until the completion callback releases its semaphore. The pinned fork passes
+the live HID state directly to `hid_int_ep_write()`. On the nrfx USB driver the
+buffer is not copied before returning, so another press/release can change an
+already submitted report before DMA transmits it. The semaphore gated the next
+send, but not changes to the live keyboard state before that send.
+
+This is the documented upstream bug
+[zmkfirmware/zmk#2253](https://github.com/zmkfirmware/zmk/issues/2253), also
+reported on an Advantage360. The fix follows the stable-buffer approach in
+[#2257](https://github.com/zmkfirmware/zmk/pull/2257), with an additional check
+that a semaphore timeout never permits reuse of an in-flight buffer. The
+upstream PR was closed without merging. A local union covers the actual
+keyboard, consumer, optional boot and pointing report types; oversized reports
+are rejected rather than overflowing that storage.
+
+This changes USB transport ownership only. It adds no new key delay or output
+queue and changes no resolver code, layout binding, 90/170 ms tapping term,
+12 ms pulse, repeat window, Bluetooth control or split notification pacing.
+Both CI variants and the Docker build apply the patch. Native tests compile
+the actual send function with a deferred-read endpoint; the unpatched source
+fails nine assertions, while the patched source preserves the report snapshots.
+This reproduces the buffer defect, not proof that every observed physical
+Backspace delay has the same cause. Real-device comparison remains required.
 
 ## Preserved intentionally
 
@@ -141,8 +168,9 @@ and arrow serialization.
 component for the timed Bluetooth layer described above. It calls ZMK's
 standard selected-profile APIs; bonding storage and advertising remain ZMK.
 
-Hardware scanning, Bluetooth, USB, split communication, bootloader handling,
-power management, and the Advantage 360 board definition remain Kinesis ZMK.
+Hardware scanning, bonding, bootloader handling, power management, and the
+Advantage 360 board definition remain Kinesis ZMK. USB report ownership and
+split notification backpressure have the narrow patches documented above.
 
 The queue capacities are deliberately tuned without changing split connection
 timing: each matrix scan queue holds 32 events, the right peripheral holds 64
@@ -155,6 +183,7 @@ fork's original connection interval, slave latency, and power behavior.
 
 ## Intentional implementation boundary
 
-Only the layout's semantic behaviors and Bluetooth command selection are custom. Matrix scanning, split
-transport, USB/Bluetooth HID, power management, and bootloader behavior remain
-unchanged Kinesis/ZMK code.
+Customizations are the semantic resolver, Bluetooth command selection, queue
+capacities, and the two transport patches documented above. Matrix scanning,
+radio connection parameters, HID descriptor, power management, bonding and
+bootloader behavior are not changed by the USB report-ownership fix.

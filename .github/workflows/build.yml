@@ -48,12 +48,16 @@ jobs:
         run: |
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_REVERSE_LISTENERS=1 sh tests/native/run.sh
-      - name: Apply split transport backpressure patch
+      - name: Apply split and USB transport patches
         run: |
-          patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
-          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c
-          git -C zmk apply --check "$patch_file"
-          git -C zmk apply "$patch_file"
+          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c app/src/usb_hid.c
+          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
+            patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
+            git -C zmk apply --check "$patch_file"
+            git -C zmk apply "$patch_file"
+          done
+      - name: USB report ownership regressions
+        run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_usb.sh
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
@@ -114,12 +118,16 @@ jobs:
         run: west init -l config
       - name: West Update
         run: west update
-      - name: Apply split transport backpressure patch
+      - name: Apply split and USB transport patches
         run: |
-          patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
-          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c
-          git -C zmk apply --check "$patch_file"
-          git -C zmk apply "$patch_file"
+          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c app/src/usb_hid.c
+          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
+            patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
+            git -C zmk apply --check "$patch_file"
+            git -C zmk apply "$patch_file"
+          done
+      - name: USB report ownership regressions
+        run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_usb.sh
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)

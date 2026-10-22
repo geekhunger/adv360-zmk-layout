@@ -42,11 +42,33 @@ Use `TEST_FILTER='Alt+Right' TEST_TRACE=1 sh tests/native/run.sh` to inspect a
 case. Set `ADV2_RESOLVER_SOURCE` to another resolver file to compare the same
 tests against a prior version without modifying the working tree.
 
+## USB report ownership
+
+Run `sh tests/native/run_usb.sh` against a patched ZMK checkout. To compare the
+unmodified sibling checkout without changing it, use:
+
+```sh
+USB_HID_PATCH="$PWD/patches/zmk-usb-hid-stable-buffer.patch" sh tests/native/run_usb.sh
+```
+
+This harness mechanically extracts the actual send function, semaphore and
+transmit-buffer declarations from ZMK's `usb_hid.c`. Its simulated nrfx
+endpoint keeps the supplied pointer until completion instead of copying on
+submit. It checks short taps, distinct modifier/key snapshots, semaphore
+timeouts, failed submissions and all supported report storage sizes.
+
+The unpatched pinned source fails nine assertions (including the missing
+Backspace down); the patched source passes. This establishes the live-buffer
+ownership defect. It does not measure real radio/USB latency or prove that
+every hardware symptom has the same cause. The earlier resolver-only harness
+records emitted events immediately and cannot detect this class of defect.
+
 ## Compiled-firmware check
 
 CI also runs `check_firmware_symbols.sh ELF NM` on each built left firmware. It
 requires exactly one `adv2` position subscription and verifies that it precedes
-ZMK's keymap subscription. This checks the actual linked ELF, not just the mock.
+ZMK's keymap subscription. It also requires the stable `hid_tx_report` buffer
+in the linked image. This checks the actual linked ELF, not just the mock.
 
 The v0.3.8 UF2 (commit `2d9d3a8`, left SHA-256
 `fb87933a57de8432d65828473ecffd51f13391edb2630dbadbdee3a972c18624`)

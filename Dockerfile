@@ -8,6 +8,9 @@ COPY config/west.yml config/west.yml
 RUN west init -l config
 # West Update
 RUN west update
+COPY patches ./layout_patches/
+RUN git -C zmk apply /app/layout_patches/zmk-split-notify-backpressure.patch \
+    && git -C zmk apply /app/layout_patches/zmk-usb-hid-stable-buffer.patch
 # West Zephyr export
 RUN west zephyr-export
 

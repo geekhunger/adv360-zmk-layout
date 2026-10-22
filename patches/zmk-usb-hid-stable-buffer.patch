@@ -1,0 +1,54 @@
+diff --git a/app/src/usb_hid.c b/app/src/usb_hid.c
+--- a/app/src/usb_hid.c
++++ b/app/src/usb_hid.c
+@@ -4,6 +4,8 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
++#include <string.h>
++
+ #include <zephyr/device.h>
+ #include <zephyr/init.h>
+ 
+@@ -31,6 +33,22 @@ static const struct device *hid_dev;
+ 
+ static K_SEM_DEFINE(hid_sem, 1, 1);
+ 
++/* nrfx retains the buffer pointer until USB completion. The live HID state
++ * may change before then, even before the next send obtains hid_sem.
++ * This storage belongs exclusively to the transfer holding that semaphore.
++ * See zmkfirmware/zmk#2253 and the stable-buffer approach in #2257.
++ */
++static union {
++    struct zmk_hid_keyboard_report keyboard;
++    struct zmk_hid_consumer_report consumer;
++#if IS_ENABLED(CONFIG_ZMK_USB_BOOT)
++    zmk_hid_boot_report_t boot;
++#endif
++#if IS_ENABLED(CONFIG_ZMK_POINTING)
++    struct zmk_hid_mouse_report mouse;
++#endif
++} hid_tx_report;
++
+ static void in_ready_cb(const struct device *dev) { k_sem_give(&hid_sem); }
+ 
+ #define HID_GET_REPORT_TYPE_MASK 0xff00
+@@ -191,8 +209,16 @@ static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
+     case USB_DC_UNKNOWN:
+         return -ENODEV;
+     default:
+-        k_sem_take(&hid_sem, K_MSEC(30));
+-        int err = hid_int_ep_write(hid_dev, report, len, NULL);
++        if (len > sizeof(hid_tx_report)) {
++            return -EMSGSIZE;
++        }
++        int err = k_sem_take(&hid_sem, K_MSEC(30));
++        if (err) {
++            /* A timeout grants no ownership of the in-flight buffer. */
++            return err;
++        }
++        memcpy(&hid_tx_report, report, len);
++        err = hid_int_ep_write(hid_dev, (const uint8_t *)&hid_tx_report, len, NULL);
+ 
+         if (err) {
+             k_sem_give(&hid_sem);

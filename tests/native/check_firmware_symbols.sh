@@ -18,3 +18,9 @@ if [ "$((0x$resolver_address))" -ge "$((0x$keymap_address))" ]; then
     exit 1
 fi
 printf 'PASS linked firmware: one resolver subscription at %s before keymap at %s\n' "$resolver_address" "$keymap_address"
+usb_buffer_address=$(printf '%s\n' "$symbols" | awk '$3 == "hid_tx_report" {print $1}')
+if [ -z "$usb_buffer_address" ]; then
+    printf 'Missing stable USB HID transmit buffer in linked firmware\n' >&2
+    exit 1
+fi
+printf 'PASS linked firmware: stable USB HID transmit buffer at %s\n' "$usb_buffer_address"
