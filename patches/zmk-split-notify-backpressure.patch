@@ -1,22 +1,24 @@
 diff --git a/app/src/split/bluetooth/service.c b/app/src/split/bluetooth/service.c
-index 2501f5f..c18a692 100644
+index 2501f5f..273e401 100644
 --- a/app/src/split/bluetooth/service.c
 +++ b/app/src/split/bluetooth/service.c
-@@ -320,31 +320,94 @@ K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZ
+@@ -320,31 +320,76 @@ K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZ
  
  struct k_work_q service_work_q;
  
 +/*
-+ * Keep a small position-notification window in flight. The upstream worker drains
-+ * the entire snapshot queue into bt_gatt_notify(); once the Bluetooth TX pool
-+ * is full, later snapshots fail with -ENOMEM and are silently discarded. On a
-+ * fast split keyboard that appears as missing keys, delayed Backspace, and a
-+ * burst of old input after the transport catches up.
++ * The upstream worker drains the entire snapshot queue into bt_gatt_notify();
++ * once the Bluetooth TX pool is full, later snapshots fail with -ENOMEM and
++ * are silently discarded. Process one snapshot per worker invocation instead:
++ * successful sends are gently paced, while backpressured snapshots remain at
++ * the head of the queue until a TX buffer becomes available.
++ *
++ * Deliberately do not track an in-flight count with the notification completion
++ * callback. Zephyr only invokes that callback after a successful TX completion;
++ * a failed/disconnected TX would otherwise leak the count and eventually stop
++ * the split transport permanently until reboot.
 + */
-+#define POSITION_NOTIFICATION_WINDOW 2
-+
 +static struct k_work_delayable service_position_notify_work;
-+static atomic_t position_notifications_in_flight;
 +
  K_MSGQ_DEFINE(position_state_msgq, sizeof(char[POS_STATE_LEN]),
                CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_POSITION_QUEUE_SIZE, 4);
@@ -25,62 +27,42 @@ index 2501f5f..c18a692 100644
 +    k_work_reschedule_for_queue(&service_work_q, &service_position_notify_work, delay);
 +}
 +
-+static void position_notification_complete(struct bt_conn *conn, void *user_data) {
-+    ARG_UNUSED(conn);
-+    ARG_UNUSED(user_data);
-+
-+    atomic_dec(&position_notifications_in_flight);
-+    schedule_position_notification(K_NO_WAIT);
-+}
-+
  void send_position_state_callback(struct k_work *work) {
--    uint8_t state[POS_STATE_LEN];
 +    ARG_UNUSED(work);
+     uint8_t state[POS_STATE_LEN];
  
 -    while (k_msgq_get(&position_state_msgq, &state, K_NO_WAIT) == 0) {
 -        int err = bt_gatt_notify(NULL, &split_svc.attrs[1], &state, sizeof(state));
-+    while (atomic_get(&position_notifications_in_flight) < POSITION_NOTIFICATION_WINDOW) {
-+        uint8_t state[POS_STATE_LEN];
-+        int err = k_msgq_peek(&position_state_msgq, &state);
-         if (err) {
+-        if (err) {
 -            LOG_DBG("Error notifying %d", err);
-+            return;
-+        }
+-        }
++    int err = k_msgq_peek(&position_state_msgq, &state);
++    if (err) {
++        return;
++    }
 +
-+        atomic_inc(&position_notifications_in_flight);
++    err = bt_gatt_notify(NULL, &split_svc.attrs[1], &state, sizeof(state));
++    if (err == 0) {
++        k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
++        schedule_position_notification(K_MSEC(1));
++        return;
++    }
 +
-+        struct bt_gatt_notify_params params = {
-+            .attr = &split_svc.attrs[1],
-+            .data = state,
-+            .len = sizeof(state),
-+            .func = position_notification_complete,
-+        };
-+
-+        err = bt_gatt_notify_cb(NULL, &params);
-+        if (err == 0) {
-+            /* bt_gatt_notify_cb() copied the value into its TX buffer. */
-+            k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+            continue;
-         }
--    }
++    if (err == -ENOMEM || err == -EAGAIN) {
++        /* Preserve the head snapshot and retry after Bluetooth frees a buffer. */
++        LOG_DBG("Position notification backpressured (%d), retrying", err);
++        schedule_position_notification(K_MSEC(1));
++        return;
+     }
 -};
  
 -K_WORK_DEFINE(service_position_notify_work, send_position_state_callback);
-+        atomic_dec(&position_notifications_in_flight);
-+
-+        if (err == -ENOMEM || err == -EAGAIN) {
-+            /* Preserve the head snapshot and retry after Bluetooth frees a buffer. */
-+            LOG_DBG("Position notification backpressured (%d), retrying", err);
-+            schedule_position_notification(K_MSEC(1));
-+            return;
-+        }
-+
-+        /* Match the old disconnected/unsubscribed behavior: do not replay stale
-+         * input after reconnect, but continue with any newer snapshot.
-+         */
-+        LOG_WRN("Position notification failed (%d), discarding snapshot", err);
-+        k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+    }
++    /* Match the old disconnected/unsubscribed behavior: do not replay stale
++     * input after reconnect, but continue with any newer snapshot.
++     */
++    LOG_WRN("Position notification failed (%d), discarding snapshot", err);
++    k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
++    schedule_position_notification(K_NO_WAIT);
 +}
  
  int send_position_state() {
@@ -107,7 +89,7 @@ index 2501f5f..c18a692 100644
          }
          default:
              LOG_WRN("Failed to queue position state to send (%d)", err);
-@@ -352,7 +415,7 @@ int send_position_state() {
+@@ -352,7 +397,7 @@ int send_position_state() {
          }
      }
  
@@ -116,11 +98,10 @@ index 2501f5f..c18a692 100644
  
      return 0;
  }
-@@ -445,6 +508,8 @@ int zmk_split_bt_report_input(uint8_t reg, uint8_t type, uint16_t code, int32_t
+@@ -445,6 +490,7 @@ int zmk_split_bt_report_input(uint8_t reg, uint8_t type, uint16_t code, int32_t
  static int service_init(void) {
      static const struct k_work_queue_config queue_config = {
          .name = "Split Peripheral Notification Queue"};
-+    atomic_clear(&position_notifications_in_flight);
 +    k_work_init_delayable(&service_position_notify_work, send_position_state_callback);
      k_work_queue_start(&service_work_q, service_q_stack, K_THREAD_STACK_SIZEOF(service_q_stack),
                         CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_PRIORITY, &queue_config);
