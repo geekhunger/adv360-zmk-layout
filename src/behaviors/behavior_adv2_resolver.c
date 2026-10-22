@@ -86,6 +86,7 @@ struct mod_tap_state {
     uint16_t action;
     int32_t position;
     int64_t pressed_at;
+    int64_t input_pressed_at;
     int64_t grace_deadline;
     int64_t last_tap_released_at;
     uint64_t latch_targets[2];
@@ -1303,6 +1304,7 @@ static void reset_mod_tap(struct mod_tap_state *state) {
     state->hold_active = false;
     state->hold_keycode = 0;
     state->pressed_at = 0;
+    state->input_pressed_at = 0;
     state->grace_deadline = 0;
     state->latch_targets[0] = 0;
     state->latch_targets[1] = 0;
@@ -1382,6 +1384,15 @@ static uint32_t mod_tap_tap_keycode(uint16_t action) {
 
 static bool mod_tap_is_unresolved(const struct mod_tap_state *state) {
     return state->phase == MOD_TAP_PENDING || state->phase == MOD_TAP_RELEASED_GRACE;
+}
+
+static bool navigation_was_short_press(const struct mod_tap_state *state,
+                                        struct zmk_behavior_binding_event event) {
+    /* Compare only this key's own input edges, not time spent replaying a
+     * queue or sending HID reports. No cross-half clock subtraction is used.
+     */
+    return event.timestamp >= state->input_pressed_at &&
+           event.timestamp - state->input_pressed_at < MOD_TAP_TAPPING_TERM_MS;
 }
 
 static uint8_t unresolved_mod_tap_count(void) {
@@ -1655,7 +1666,7 @@ static void resolve_expired_mod_taps(int64_t now,
         /*
          * Delete/Backspace do not need a speculative Alt transition when their
          * own release is the event that crosses the 90 ms threshold. Let the
-         * behavior consume that release as the existing retro tap instead.
+         * behavior classify that release using this key's own input duration.
          */
         if (state->position == skipped_navigation_release_position &&
             mod_tap_is_navigation(state->action)) {
@@ -1946,10 +1957,12 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         mark_mod_tap_chord(state);
         state->tap_mods = zmk_hid_get_explicit_mods();
         state->physically_pressed = true;
+        state->input_pressed_at = event.timestamp;
 
         if (mod_tap_is_navigation(action) && unresolved_mod_tap_count() == 0 &&
             deferred_input_event_count == 0 &&
-            now - state->last_tap_released_at <= NAV_REPEAT_WINDOW_MS) {
+            event.timestamp >= state->last_tap_released_at &&
+            event.timestamp - state->last_tap_released_at <= NAV_REPEAT_WINDOW_MS) {
             state->phase = MOD_TAP_REPEAT_DOWN;
             handle_navigation(mod_tap_to_navigation(state->action), true, event);
             return ZMK_BEHAVIOR_OPAQUE;
@@ -1987,6 +2000,23 @@ static int handle_mod_tap(uint16_t action, bool pressed,
                 break;
             }
 
+            if (!navigation_was_short_press(state, event)) {
+                /* A solitary long Alt hold is not a correction. In particular
+                 * it must neither retro-tap Delete/Backspace on release nor
+                 * arm tap-tap-hold repetition for the next press.
+                 */
+                int marker = find_mod_tap_marker(state);
+                if (marker >= 0) {
+                    remove_deferred_input(marker);
+                }
+                state->last_tap_released_at = INT64_MIN / 2;
+                reset_mod_tap(state);
+                if (unresolved_mod_tap_count() == 0) {
+                    release_deferred_input_events();
+                }
+                break;
+            }
+
             /*
              * With no later action down, Delete/Backspace are taps. Any
              * other unresolved dual-role keys become the modifiers for that
@@ -1996,7 +2026,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
             const uint16_t tap_action = state->action;
             const uint8_t tap_mods = state->tap_mods;
             const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
-            state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : k_uptime_get();
+            state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : event.timestamp;
             reset_mod_tap(state);
 
             /*
@@ -2045,22 +2075,21 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     }
     case MOD_TAP_REPEAT_DOWN:
         handle_navigation(mod_tap_to_navigation(state->action), false, event);
-        state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : k_uptime_get();
+        state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : event.timestamp;
         reset_mod_tap(state);
         break;
     case MOD_TAP_HOLDING:
         if (mod_tap_has_latch_targets(state)) {
             state->phase = MOD_TAP_LATCHED;
-        } else if (mod_tap_is_navigation(state->action) && !state->interrupted) {
-            /*
-             * Retro-tap only the two Alt/navigation keys.  The 90 ms hold
-             * decision may have fired while a split release was in flight;
-             * an otherwise unused hold must remain a Delete/Backspace tap.
+        } else if (mod_tap_is_navigation(state->action) && !state->interrupted &&
+                   navigation_was_short_press(state, event)) {
+            /* Only a genuinely short input tap may be recovered after delayed
+             * processing. An actual long hold must never delete on release.
              */
             const uint16_t tap_action = state->action;
             const uint8_t tap_mods = state->tap_mods;
             release_mod_tap_hold(state);
-            state->last_tap_released_at = k_uptime_get();
+            state->last_tap_released_at = event.timestamp;
             reset_mod_tap(state);
             tap_mod_tap(tap_action, event, tap_mods);
         } else {

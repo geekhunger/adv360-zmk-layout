@@ -40,6 +40,11 @@ Coverage includes:
   the old Delete/Backspace repeat window; consecutive tap-tap-hold still works.
 - Eight successive rolled Alt+A chords yield eight plus signs, not `a` or
   Backspace, under both OS modes and either Alt/A release order.
+- Solitary Alt holds at/above 90 ms must not delete on release or arm a following
+  repeat. This covers both sides/OS modes, 89/90/91 ms boundaries and two-second
+  holds. Same-key input timestamps, not replay time, distinguish a long hold
+  from a short tap or a quick second press. The batched correction test assigns
+  its declared input-edge duration independently of time blocked sending HID.
 - Delayed pulse modifier snapshots and 2,000 seeded mixed sequences of 100
   events each, plus 50,000 events without resetting the resolver. Once all
   physical keys are released and timers settle, the HID

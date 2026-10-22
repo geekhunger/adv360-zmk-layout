@@ -112,13 +112,13 @@ Backspace delay has the same cause. Real-device comparison remains required.
   If the same key is pressed again during the 12 ms post-release grace, the
   preceding tap resolves immediately and the new press starts normally instead
   of being discarded.
-- At 90 ms a held Delete/Backspace becomes Alt, matching QMK and allowing its
-  modifier report to precede a following chord action. Releasing it without a
-  following physical action removes Alt and retro-taps Delete/Backspace, so a
-  slow or transport-delayed solitary correction is not swallowed. Before the
-  90 ms decision, releasing the key with no later overlapping action emits its
-  navigation tap and promotes any older unresolved dual-role keys before that
-  action (for example Cmd+Backspace).
+- At 90 ms a held Delete/Backspace qualifies as Alt, allowing its modifier report
+  to precede a following chord action. Releasing an unused long hold must not
+  emit Delete/Backspace or arm deletion repeat. Only a genuinely short input
+  press (less than 90 ms) is a tap; its own input-edge timestamps distinguish
+  it from handler/queue latency. A later overlapping action still selects the
+  Alt chord. A short correction promotes older unresolved dual-role keys before
+  that action (for example Cmd+Backspace).
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before
@@ -177,6 +177,30 @@ Backspace counts after an overlapping letter are covered under both OS modes.
 The old source fails the new repeat and rolled-plus tests; the changed source
 passes them and the prior suite. The reported two-`a` symptom was not separately
 reproduced, and these checks do not replace testing on the physical keyboard.
+
+## Unused Alt hold correction (2026-10-22, after v0.3.12)
+
+The user confirmed that the NUM additions work, but holding either Alt alone
+and releasing it produced Delete/Backspace. This was a real, intentional earlier
+fallback in the port, not part of the desired layout: every unused navigation
+hold retro-tapped on release. The fallback now applies only to input taps
+strictly shorter than the original 90 ms term; long unused holds produce no
+navigation event and cannot arm the 120 ms repeat gesture.
+
+Navigation duration and repeat adjacency compare timestamps of the same key's
+input edges. Handler execution time can compress queued long holds or stretch
+short taps during HID sends and is not suitable for this classification.
+There is no subtraction of timestamps belonging to different halves.
+Tests explicitly cover both Alt keys, 89/90/91 ms boundaries, two-second holds,
+unused holds followed immediately by a new hold, and delayed batch dispatch.
+Earlier tests that demanded a correction from every 10-200 ms solitary press
+are corrected to the user-confirmed tap/hold distinction.
+
+Continuous deletion while holding only the right Alt after a pause remains
+unexplained by the clean single-edge resolver test. Extra release/press edges
+or direct NUM Backspace can reproduce held deletion, but neither is yet proven
+on the device. A separate opt-in diagnostic build is authorized to inspect it;
+do not report this symptom fixed based on the unused-hold regression alone.
 
 ## Deliberate hardware normalization
 

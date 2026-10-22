@@ -214,13 +214,14 @@ static void key(int64_t time, int p, bool down) {
  * between every position. Keep this path separate from key(), which always
  * advances due timers first. Callers explicitly choose when workers can run.
  */
-static void batch_key(int p, bool down) {
+static void batch_key_at(int p, bool down, int64_t input_time) {
     if (physical_keys[p]==down) { mock_error("Invalid batched physical sequence at %d",p); return; }
     physical_keys[p]=down;
-    struct zmk_position_state_changed_event ev={.data={p,down,now_ms}};
+    struct zmk_position_state_changed_event ev={.data={p,down,input_time}};
     int result=mock_raise_after(&ev,NULL);
     if(result<0)mock_error("Batched dispatch failed: %d",result);
 }
+static void batch_key(int p, bool down) { batch_key_at(p,down,now_ms); }
 static void fresh(void) {
     now_ms=1000; work_order=0; worker_count=0; errors=0; output_count=0;
     windows_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
@@ -259,7 +260,8 @@ static void settled(void) {
 static void test_single_backspaces(void) {
     for(int duration=10;duration<=200;duration+=10) {
         fresh(); key(1000,38,true); key(1000+duration,38,false);
-        CHECK(downs(BACKSPACE,0)==1); settled();
+        /* Long solitary presses are Alt holds, not retroactive corrections. */
+        CHECK(downs(BACKSPACE,0)==(duration<90?1u:0u)); settled();
     }
 }
 static void test_modified_backspaces(void) {
@@ -551,9 +553,15 @@ static void test_batched_word_corrections(void) {
             batch_key(word[i],true);now_ms+=gap;batch_key(word[i],false);
         }
         if(modifiers[m]>=0)batch_key(modifiers[m],true);
-        for(int i=0;i<5;i++){batch_key(38,true);now_ms+=gap;batch_key(38,false);}
+        for(int i=0;i<5;i++) {
+            int64_t input_pressed=now_ms;
+            batch_key(38,true);now_ms+=gap;
+            /* Sending an earlier HID report is processing time, not extra
+             * physical hold duration of this correction. */
+            batch_key_at(38,false,input_pressed+gap);
+        }
         if(modifiers[m]>=0)batch_key(modifiers[m],false);
-        settled();CHECK(downs(BACKSPACE,expected[m])==5);
+        settled();CHECK(downs(BACKSPACE,expected[m])==(gap<90?5u:0u));
         CHECK(downs(K,0)==1);CHECK(downs(L,0)==1);CHECK(downs(P,0)==2);
         if(failures!=before) {
             fprintf(stderr,"  batched modifier %d report delay %d gap %d ms\n",modifiers[m],delay,gap);
@@ -896,6 +904,49 @@ static void test_repeated_fast_plus_rolls(void) {
         CHECK(downs(BACKSPACE,-1)==0);
     }
 }
+
+static void test_unused_alt_holds_do_not_delete(void) {
+    const int alts[]={35,38},durations[]={89,90,91,200,2000};
+    const uint32_t codes[]={DELETE,BACKSPACE};
+    for(int win=0;win<2;win++)for(size_t a=0;a<2;a++)for(size_t d=0;d<ARRAY_SIZE(durations);d++) {
+        fresh();windows_mode=win;
+        key(3000,alts[a],true);advance(3000+durations[d]);
+        CHECK(downs(codes[a],-1)==0);CHECK(!hid_keys[codes[a]&0xffff]);
+        key(3000+durations[d],alts[a],false);
+        CHECK(downs(codes[a],-1)==(durations[d]<90?1u:0u));
+        if(durations[d]>=90) {
+            /* A long unused hold must not arm deletion repeat for next hold. */
+            key(3010+durations[d],alts[a],true);advance(3300+durations[d]);
+            CHECK(downs(codes[a],-1)==0);CHECK(!hid_keys[codes[a]&0xffff]);
+            key(3310+durations[d],alts[a],false);
+        }
+        settled();
+        if(durations[d]>=90)CHECK(downs(codes[a],-1)==0);
+    }
+    /* An older letter's release can promote the long-held Alt without any
+     * new action using it. This HOLDING path must not retro-delete either. */
+    for(size_t a=0;a<2;a++) {
+        fresh();key(1000,29,true);key(1010,alts[a],true);key(1120,29,false);
+        key(1300,alts[a],false);settled();CHECK(downs(codes[a],-1)==0);
+    }
+}
+
+static void test_navigation_input_time_survives_delayed_dispatch(void) {
+    const int alts[]={35,38};const uint32_t codes[]={DELETE,BACKSPACE};
+    for(size_t a=0;a<2;a++)for(int held=0;held<2;held++) {
+        fresh();now_ms=5000;
+        batch_key_at(alts[a],true,1000);
+        batch_key_at(alts[a],false,held?3000:1040);
+        CHECK(downs(codes[a],-1)==(held?0u:1u));
+        /* Two seconds between input presses is not a quick repeat just
+         * because their queued handlers execute back-to-back. */
+        batch_key_at(alts[a],true,held?5010:3050);
+        CHECK(downs(codes[a],-1)==(held?0u:1u));
+        advance(6000);
+        batch_key_at(alts[a],false,held?5300:3340);
+        settled();CHECK(downs(codes[a],-1)==(held?0u:1u));
+    }
+}
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -945,6 +996,8 @@ int main(void) {
     run("navigation repeat is cancelled by an intervening key",test_navigation_repeat_requires_consecutive_taps);
     run("letter first then one or two Backspace taps retains exact count",test_letter_then_one_or_two_navigation_taps);
     run("repeated fast Alt+A rolls emit one plus each",test_repeated_fast_plus_rolls);
+    run("unused Alt holds never delete or arm deletion repeat",test_unused_alt_holds_do_not_delete);
+    run("navigation tap duration and repeat use own input-edge timestamps",test_navigation_input_time_survives_delayed_dispatch);
     printf("%u failed assertions\n",failures);
     return failures?1:0;
 }

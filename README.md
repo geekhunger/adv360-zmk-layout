@@ -15,7 +15,7 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - Windows-Navigation als Gegenstück zum macOS-Verhalten
 - originale QMK-Timings: 90 ms für alle Dual-Role-Modifier, 170 ms für Buchstaben
 - ein gemeinsamer paralleler 90-ms-Resolver für alle sechs Dual-Role-Tasten;
-  unbenutzte Delete-/Backspace-Holds werden beim Loslassen rückwirkend getappt
+  unbenutzte lange Alt-Holds bleiben auch beim Loslassen ohne Ausgabe
 - Roll-Erkennung ohne Seitenheuristiken; Alt vor einer überlappenden Zeichentaste
   bleibt Alt, auch wenn Alt zuerst losgelassen wird
 - 12-ms-Toleranz für knapp zu früh losgelassene Mehrfach-Modifier
