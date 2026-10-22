@@ -166,14 +166,17 @@ static struct semantic_tap_dance semantic_dances[ADV2_SEMANTIC_COUNT];
 static void resolve_semantic(uint16_t id, bool held, uint8_t count);
 static int mod_tap_capture_position_listener(const zmk_event_t *eh);
 static int semantic_tap_dance_position_listener(const zmk_event_t *eh);
+static int adv2_position_listener(const zmk_event_t *eh);
+static int replay_after_mod_tap_capture(struct zmk_position_state_changed_event *event);
 static void schedule_pulse_order_replay_if_ready(void);
 static void release_latched_mod_taps(int32_t position);
 
-/* Must run before the Tap-Dance interrupter so replayed events follow normal QMK order. */
-ZMK_LISTENER(adv2_mod_tap_capture, mod_tap_capture_position_listener);
-ZMK_SUBSCRIPTION(adv2_mod_tap_capture, zmk_position_state_changed);
-ZMK_LISTENER(adv2_semantic_tap_dance, semantic_tap_dance_position_listener);
-ZMK_SUBSCRIPTION(adv2_semantic_tap_dance, zmk_position_state_changed);
+/* These stages must not be separate linker-section subscriptions: optimized
+ * GCC can reverse their registration order. Use one subscription and explicit
+ * calls so capture always precedes semantic interruption, including replay.
+ */
+ZMK_LISTENER(adv2_input, adv2_position_listener);
+ZMK_SUBSCRIPTION(adv2_input, zmk_position_state_changed);
 
 struct modifier_entry {
     uint8_t flag;
@@ -363,10 +366,8 @@ static void pulse_order_barrier_worker(struct k_work *item) {
         pulse_order_barrier_replaying = true;
         pulse_order_replay_captured = false;
         int result = pulse_deferred_events[0].after_mod_tap_capture
-                         ? ZMK_EVENT_RAISE_AFTER(pulse_deferred_events[0].event,
-                                                 adv2_mod_tap_capture)
-                         : ZMK_EVENT_RAISE_AT(pulse_deferred_events[0].event,
-                                              adv2_mod_tap_capture);
+                         ? replay_after_mod_tap_capture(&pulse_deferred_events[0].event)
+                         : ZMK_EVENT_RAISE_AT(pulse_deferred_events[0].event, adv2_input);
         pulse_order_barrier_replaying = false;
 
         if (pulse_order_replay_captured) {
@@ -1130,9 +1131,28 @@ static int semantic_tap_dance_position_listener(const zmk_event_t *eh) {
      */
     struct zmk_position_state_changed_event pressed_event =
         copy_raised_zmk_position_state_changed(ev);
-    int result = ZMK_EVENT_RAISE_AFTER(pressed_event, adv2_semantic_tap_dance);
+    int result = ZMK_EVENT_RAISE_AFTER(pressed_event, adv2_input);
     release_latched_mod_taps(ev->position);
     return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
+}
+
+/* A deferred event may already have passed capture, but never semantic
+ * interruption. Resume that exact stage instead of guessing linker order.
+ */
+static int replay_after_mod_tap_capture(struct zmk_position_state_changed_event *event) {
+    int result = semantic_tap_dance_position_listener(&event->header);
+    if (result == ZMK_EV_EVENT_BUBBLE) {
+        return ZMK_EVENT_RAISE_AFTER(*event, adv2_input);
+    }
+    return result < 0 ? result : 0;
+}
+
+static int adv2_position_listener(const zmk_event_t *eh) {
+    int result = mod_tap_capture_position_listener(eh);
+    if (result != ZMK_EV_EVENT_BUBBLE) {
+        return result;
+    }
+    return semantic_tap_dance_position_listener(eh);
 }
 
 static uint32_t nav_keycode(uint16_t action) {
@@ -1751,7 +1771,7 @@ static void release_deferred_input_events(void) {
         if (event.type == DEFERRED_MOD_TAP) {
             tap_mod_tap(event.mod_tap_action, event.binding_event, event.mod_tap_mods);
         } else if (event.type == DEFERRED_POSITION) {
-            ZMK_EVENT_RAISE_AFTER(event.position_event, adv2_mod_tap_capture);
+            replay_after_mod_tap_capture(&event.position_event);
         } else {
             LOG_ERR("Unresolved mod-tap marker reached replay");
         }
@@ -1818,12 +1838,33 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
         !deferred_position_is_active(ev->position)) {
         struct zmk_position_state_changed_event released_event =
             copy_raised_zmk_position_state_changed(ev);
-        int result = ZMK_EVENT_RAISE_AFTER(released_event, adv2_mod_tap_capture);
+        int result = replay_after_mod_tap_capture(&released_event);
         release_latched_mod_taps(ev->position);
         return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
     }
 
     if (mod_tap_position) {
+        if (ev->state) {
+            for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+                struct mod_tap_state *state = &mod_taps[i];
+                if (state->position != ev->position) {
+                    continue;
+                }
+                if (state->phase == MOD_TAP_RELEASED_GRACE) {
+                    k_work_cancel_delayable(&state->hold_work);
+                    resolve_grace_mod_tap(state);
+                }
+                /* Commit earlier modifiers and replay their buffered letters
+                 * BEFORE this press reaches semantic interruption. Doing it
+                 * inside handle_mod_tap() is too late: the last replayed
+                 * letter then waits 170 ms and can appear after Backspace.
+                 */
+                if (state->phase == MOD_TAP_IDLE && unresolved_mod_tap_count() > 0) {
+                    promote_unresolved_for_live_action(ev->position);
+                }
+                break;
+            }
+        }
         return ZMK_EV_EVENT_BUBBLE;
     }
 

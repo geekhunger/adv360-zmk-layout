@@ -47,10 +47,14 @@ struct zmk_position_state_changed_event {
 };
 struct zmk_listener { int (*callback)(const zmk_event_t *); };
 #define ZMK_LISTENER(name, cb) const struct zmk_listener zmk_listener_##name = {cb}
-#define ZMK_SUBSCRIPTION(...)
+#define ZMK_SUBSCRIPTION(name, ...) \
+    static void mock_subscribe_##name(void) __attribute__((constructor)); \
+    static void mock_subscribe_##name(void) { mock_register_listener(&zmk_listener_##name); }
 #define ZMK_EVENT_RAISE_AFTER(ev, listener) mock_raise_after(&(ev), &zmk_listener_##listener)
-#define ZMK_EVENT_RAISE_AT(ev, listener) mock_raise_after(&(ev), NULL)
+#define ZMK_EVENT_RAISE_AT(ev, listener) mock_raise_at(&(ev), &zmk_listener_##listener)
+void mock_register_listener(const struct zmk_listener *);
 int mock_raise_after(struct zmk_position_state_changed_event *, const struct zmk_listener *);
+int mock_raise_at(struct zmk_position_state_changed_event *, const struct zmk_listener *);
 static inline const struct zmk_position_state_changed *as_zmk_position_state_changed(const zmk_event_t *ev) {
     return &((const struct zmk_position_state_changed_event *)ev)->data;
 }

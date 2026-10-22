@@ -45,7 +45,9 @@ jobs:
       - name: West Update
         run: west update
       - name: Resolver state and ordering regressions
-        run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
+        run: |
+          CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
+          CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_REVERSE_LISTENERS=1 sh tests/native/run.sh
       - name: Apply split transport backpressure patch
         run: |
           patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
@@ -56,6 +58,10 @@ jobs:
         run: west zephyr-export
       - name: West Build (left)
         run: west build -s zmk/app -d build/left -b adv360_left -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
+      - name: Verify linked resolver event order
+        run: |
+          nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
+          sh tests/native/check_firmware_symbols.sh build/left/zephyr/zmk.elf "$nm_tool"
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)
@@ -118,6 +124,10 @@ jobs:
         run: west zephyr-export
       - name: West Build (left)
         run: west build -s zmk/app -d build/left -b adv360_left -S studio-rpc-usb-uart -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}" -DCONFIG_ZMK_STUDIO=y
+      - name: Verify linked resolver event order
+        run: |
+          nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
+          sh tests/native/check_firmware_symbols.sh build/left/zephyr/zmk.elf "$nm_tool"
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)

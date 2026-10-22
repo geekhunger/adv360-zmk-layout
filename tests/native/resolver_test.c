@@ -18,11 +18,19 @@ static size_t worker_count;
 static unsigned errors, failures;
 static bool windows_mode, number_mode;
 static uint8_t hid_mods;
+static unsigned hid_report_delay_ms;
 static unsigned hid_mod_counts[8];
 static bool hid_keys[256], physical_keys[128];
 struct output { int64_t time; uint32_t code; bool down; uint8_t mods; };
 static struct output outputs[10000];
 static size_t output_count;
+static const struct zmk_listener *listeners[10];
+static size_t listener_count;
+
+void mock_register_listener(const struct zmk_listener *listener) {
+    if(listener_count>=ARRAY_SIZE(listeners))abort();
+    listeners[listener_count++]=listener;
+}
 
 void mock_error(const char *format, ...) {
     va_list args;
@@ -68,6 +76,7 @@ int raise_zmk_keycode_state_changed_from_encoded(uint32_t encoded, bool down, in
     }
     if (output_count >= ARRAY_SIZE(outputs)) abort();
     outputs[output_count++] = (struct output){time, code, down, hid_mods | SELECT_MODS(encoded)};
+    now_ms += hid_report_delay_ms;
     return 0;
 }
 
@@ -98,17 +107,24 @@ static int dispatch_keymap(struct zmk_position_state_changed_event *ev) {
     if (!binding.param1) return 0;
     return ev->data.state ? adv2_resolver_pressed(&binding, event) : adv2_resolver_released(&binding, event);
 }
-int mock_raise_after(struct zmk_position_state_changed_event *ev, const struct zmk_listener *after) {
-    int result;
-    if (!after) {
-        result = mod_tap_capture_position_listener(&ev->header);
-        if (result != ZMK_EV_EVENT_BUBBLE) return result < 0 ? result : 0;
-    }
-    if (!after || after == &zmk_listener_adv2_mod_tap_capture) {
-        result = semantic_tap_dance_position_listener(&ev->header);
-        if (result != ZMK_EV_EVENT_BUBBLE) return result < 0 ? result : 0;
+static const struct zmk_listener *listener_at(size_t index) {
+    return listeners[getenv("TEST_REVERSE_LISTENERS")?listener_count-1-index:index];
+}
+static int mock_raise_from(struct zmk_position_state_changed_event *ev, size_t start) {
+    for(size_t i=start;i<listener_count;i++) {
+        int result=listener_at(i)->callback(&ev->header);
+        if(result!=ZMK_EV_EVENT_BUBBLE)return result<0?result:0;
     }
     return dispatch_keymap(ev);
+}
+int mock_raise_after(struct zmk_position_state_changed_event *ev, const struct zmk_listener *after) {
+    if(!after)return mock_raise_from(ev,0);
+    for(size_t i=0;i<listener_count;i++)if(listener_at(i)==after)return mock_raise_from(ev,i+1);
+    mock_error("Replay AFTER an unregistered listener");return -EINVAL;
+}
+int mock_raise_at(struct zmk_position_state_changed_event *ev, const struct zmk_listener *at) {
+    for(size_t i=0;i<listener_count;i++)if(listener_at(i)==at)return mock_raise_from(ev,i);
+    mock_error("Replay AT an unregistered listener");return -EINVAL;
 }
 static void advance(int64_t target) {
     unsigned rounds=0;
@@ -137,7 +153,7 @@ static void key(int64_t time, int p, bool down) {
 }
 static void fresh(void) {
     now_ms=1000; work_order=0; worker_count=0; errors=0; output_count=0;
-    windows_mode=false; number_mode=false; hid_mods=0;
+    windows_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
     memset(hid_mod_counts,0,sizeof(hid_mod_counts));
     memset(hid_keys,0,sizeof(hid_keys));
     memset(physical_keys,0,sizeof(physical_keys));
@@ -353,6 +369,91 @@ static void test_word_correction_timing_sweep(void) {
         CHECK(downs(BACKSPACE,0)==5);CHECK(downs(SPACE,0)==1);
     }
 }
+static void test_word_then_modified_backspace_sweep(void) {
+    const int modifiers[]={35,67,68,66,69};
+    const int expected[]={MOD_LALT,MOD_LGUI,MOD_LGUI,MOD_LSFT,MOD_RSFT};
+    for(size_t m=0;m<ARRAY_SIZE(modifiers);m++)for(int step=1;step<=60;step++) {
+        fresh();int64_t t=1000;
+        const int word[]={42,43,44,44};
+        for(size_t i=0;i<ARRAY_SIZE(word);i++){key(t,word[i],true);t+=step;key(t,word[i],false);t+=step;}
+        key(t,modifiers[m],true);t+=step;
+        for(int i=0;i<5;i++) {
+            key(t,38,true);t+=step;key(t,38,false);t+=step;
+        }
+        advance(t+100);
+        CHECK(downs(BACKSPACE,expected[m])==5);
+        key(t+101,modifiers[m],false);settled();
+        CHECK(downs(K,0)==1);CHECK(downs(L,0)==1);CHECK(downs(P,0)==2);
+        CHECK(downs(BACKSPACE,-1)==5);
+    }
+}
+static void test_word_tail_overlaps_modified_backspace(void) {
+    const int modifiers[]={35,67,68,66,69};
+    const int expected[]={MOD_LALT,MOD_LGUI,MOD_LGUI,MOD_LSFT,MOD_RSFT};
+    for(size_t m=0;m<ARRAY_SIZE(modifiers);m++)for(int overlap=0;overlap<=150;overlap+=5) {
+        fresh();key(1000,42,true);key(1015,43,true);key(1030,42,false);
+        key(1045,44,true);key(1060,43,false);key(1075,modifiers[m],true);
+        key(1080,38,true);
+        if(overlap<=20) {key(1080+overlap,44,false);key(1100,38,false);}
+        else {key(1100,38,false);key(1080+overlap,44,false);}
+        for(int i=0;i<4;i++){key(1250+i*60,38,true);key(1270+i*60,38,false);}
+        advance(1500);
+        CHECK(downs(BACKSPACE,expected[m])==5);
+        key(1510,modifiers[m],false);settled();
+        CHECK(downs(K,0)==1);CHECK(downs(L,0)==1);CHECK(downs(P,0)==1);
+    }
+}
+static void test_modified_corrections_with_report_delays(void) {
+    const int modifiers[]={-1,35,67,68};
+    const int expected[]={0,MOD_LALT,MOD_LGUI,MOD_LGUI};
+    for(size_t m=0;m<ARRAY_SIZE(modifiers);m++)for(int delay=1;delay<=30;delay++) {
+        fresh();hid_report_delay_ms=delay;int64_t t=1000;
+        const int word[]={42,43,44,44};
+        for(size_t i=0;i<ARRAY_SIZE(word);i++){key(t,word[i],true);t+=20;key(t,word[i],false);t+=20;}
+        if(modifiers[m]>=0){key(t,modifiers[m],true);t+=20;}
+        for(int i=0;i<8;i++){key(t,38,true);t+=20;key(t,38,false);t+=20;}
+        advance(now_ms+500);
+        unsigned before=failures;
+        CHECK(downs(BACKSPACE,expected[m])==8);
+        if(failures!=before)fprintf(stderr,"  modifier %d report delay %d ms\n",modifiers[m],delay);
+        if(modifiers[m]>=0)key(now_ms+1,modifiers[m],false);
+        settled();
+    }
+}
+static void test_correction_behind_pulse_barrier(void) {
+    const int modifiers[]={35,67,68};
+    const int expected[]={MOD_LALT,MOD_LGUI,MOD_LGUI};
+    for(size_t m=0;m<ARRAY_SIZE(modifiers);m++) {
+        fresh();
+        key(1000,42,true);key(1010,42,false);key(1020,42,true);key(1030,42,false);
+        key(1040,modifiers[m],true);key(1041,38,true);key(1042,38,false);
+        advance(1100);CHECK(downs(BACKSPACE,expected[m])==1);
+        for(int i=0;i<5;i++) {
+            key(1110+i*50,38,true);key(1130+i*50,38,false);
+            advance(1145+i*50);CHECK(downs(BACKSPACE,expected[m])==(size_t)i+2);
+        }
+        key(1400,modifiers[m],false);settled();
+        CHECK(downs(K,0)==2);CHECK(downs(DELETE,-1)==0);CHECK(downs(ESCAPE,-1)==0);
+    }
+}
+static void test_pending_word_precedes_correction(void) {
+    const int modifiers[]={35,67,68,66,69};
+    const int expected[]={MOD_LALT,MOD_LGUI,MOD_LGUI,MOD_LSFT,MOD_RSFT};
+    for(size_t m=0;m<ARRAY_SIZE(modifiers);m++) {
+        fresh();
+        /* W and X pass through as letters under all these modifier mappings. */
+        key(1000,modifiers[m],true);key(1010,16,true);key(1020,48,true);
+        key(1030,38,true);key(1040,16,false);key(1050,48,false);key(1060,38,false);
+        key(1080,modifiers[m],false);settled();
+        size_t letters=0;
+        for(size_t i=0;i<output_count;i++) {
+            if(outputs[i].down && (outputs[i].code==W || outputs[i].code==X))letters++;
+            if(outputs[i].down && outputs[i].code==BACKSPACE)CHECK(letters==2);
+        }
+        CHECK(downs(W,-1)==1);CHECK(downs(X,-1)==1);
+        CHECK(downs(BACKSPACE,expected[m])==1);
+    }
+}
 static void test_long_session_without_reset(void) {
     const int positions[]={35,38,66,67,68,69,71,72,73,74,42,43,44,65};
     fresh();random_state=0x360037;
@@ -395,6 +496,11 @@ int main(void) {
     run("symbol mappings preserve captured modifiers",test_symbol_snapshots);
     run("delayed modifier snapshots survive queue wrap",test_delayed_pulse_queue_wrap);
     run("word then five corrections over 60 timings",test_word_correction_timing_sweep);
+    run("word then held modifier and five Backspaces over 60 timings",test_word_then_modified_backspace_sweep);
+    run("word tail release overlaps modifier and Backspace",test_word_tail_overlaps_modified_backspace);
+    run("word correction with blocking HID report delays",test_modified_corrections_with_report_delays);
+    run("each modified Backspace behind double-letter barrier",test_correction_behind_pulse_barrier);
+    run("pending rolled word must precede modified Backspace",test_pending_word_precedes_correction);
     run("50000 mixed events without resolver reset",test_long_session_without_reset);
     printf("%u failed assertions\n",failures);
     return failures?1:0;
