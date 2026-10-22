@@ -748,6 +748,154 @@ static void test_num_media_rolls(void) {
     key(1610,70,false);key(1620,73,false);key(1630,69,false);settled();
     CHECK(downs(C_VOL_UP,0)==1);CHECK(downs(C_BRI_UP,-1)==0);
 }
+
+static size_t semantic_downs(struct output *result) {
+    size_t n=0;
+    for(size_t i=0;i<output_count;i++) {
+        if(outputs[i].down && !(outputs[i].code>=LCTRL && outputs[i].code<=RGUI))
+            result[n++]=outputs[i];
+    }
+    return n;
+}
+
+static void alt_symbol_roll(int alt, int letter, int extras, bool win, bool held, bool early) {
+    fresh();windows_mode=win;
+    if(extras&1)key(1000,66,true);
+    if(extras&2)key(1010,69,true);
+    if(extras&4)key(1020,67,true);
+    if(extras&8)key(1030,52,true);
+    /* A held-symbol reference starts after the 90 ms Alt decision. Without
+     * this, the baseline buffers both letter edges until release and never
+     * observes a semantic hold. The rolled case starts before 90 ms. */
+    const int letter_at=(held && !early)?1160:1060;
+    key(1040,alt,true);key(letter_at,letter,true);
+    if(early)key(1080,alt,false);
+    key(letter_at+(held?200:40),letter,false);
+    if(!early)key(letter_at+(held?220:60),alt,false);
+    if(extras&8)key(1400,52,false);
+    if(extras&4)key(1410,67,false);
+    if(extras&2)key(1420,69,false);
+    if(extras&1)key(1430,66,false);
+    settled();
+}
+
+static void test_alt_symbol_rolls(void) {
+    const int alts[]={35,38};
+    const int extras[]={0,1,2,3,4,5,8,9};
+    struct output expected[512],actual[512];
+    for(int win=0;win<2;win++)for(size_t a=0;a<2;a++)
+    for(size_t m=0;m<ARRAY_SIZE(extras);m++)for(int held=0;held<2;held++)
+    for(int p=0;p<128;p++)if(semantic_at[p]) {
+        unsigned before=failures;
+        alt_symbol_roll(alts[a],p,extras[m],win,held,false);
+        size_t n=semantic_downs(expected);
+        alt_symbol_roll(alts[a],p,extras[m],win,held,true);
+        size_t actual_n=semantic_downs(actual);
+        CHECK(actual_n==n);CHECK(n>0);
+        for(size_t i=0;i<n && i<actual_n;i++) {
+            CHECK(expected[i].code==actual[i].code);
+            CHECK(expected[i].mods==actual[i].mods);
+        }
+        CHECK(downs(BACKSPACE,-1)==0);CHECK(downs(DELETE,-1)==0);
+        if(before!=failures) {
+            fprintf(stderr,"  Alt roll OS=%d alt=%d key=%d extras=%d held=%d\n",
+                    win,alts[a],p,extras[m],held);
+            return;
+        }
+    }
+}
+
+static void test_navigation_repeat_requires_consecutive_taps(void) {
+    const int alts[]={35,38};
+    const uint32_t codes[]={DELETE,BACKSPACE};
+    const int interruptions[]={29,65,67};
+    for(int win=0;win<2;win++)for(size_t a=0;a<2;a++)for(size_t p=0;p<3;p++) {
+        fresh();windows_mode=win;
+        key(1000,alts[a],true);key(1010,alts[a],false);
+        key(1020,interruptions[p],true);key(1030,interruptions[p],false);
+        advance(1050);size_t before=downs(codes[a],-1);
+        key(1060,alts[a],true);advance(1200);
+        CHECK(downs(codes[a],-1)==before);CHECK(!hid_keys[codes[a]&0xffff]);
+        key(1210,29,true);key(1220,29,false);key(1230,alts[a],false);settled();
+        CHECK(downs(KP_PLUS,-1)==1);CHECK(downs(codes[a],-1)==1);
+    }
+    /* User reproduction: a tap, a fast literal "num", then hold right Alt. */
+    for(int win=0;win<2;win++) {
+        fresh();windows_mode=win;
+        key(1000,38,true);key(1010,38,false);
+        key(1020,41,true);key(1030,41,false);
+        key(1040,23,true);key(1050,23,false);
+        key(1060,55,true);key(1070,55,false);
+        key(1090,38,true);advance(1500);
+        CHECK(downs(BACKSPACE,-1)==1);CHECK(!hid_keys[BACKSPACE&0xffff]);
+        key(1510,29,true);key(1530,29,false);key(1550,38,false);settled();
+        CHECK(downs(KP_PLUS,-1)==1);CHECK(downs(A,-1)==0);
+    }
+}
+
+static void test_alt_shift_symbol_release_orders(void) {
+    const int alts[]={35,38},shifts[]={66,69};
+    const int release_order[][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
+    struct output expected[512],actual[512];
+    for(int win=0;win<2;win++)for(size_t a=0;a<2;a++)for(size_t s=0;s<2;s++)
+    for(int p=0;p<128;p++)if(semantic_at[p]) {
+        alt_symbol_roll(alts[a],p,1<<s,win,false,false);
+        size_t n=semantic_downs(expected);
+        for(int alt_first=0;alt_first<2;alt_first++)for(size_t order=0;order<6;order++) {
+            unsigned before=failures;
+            fresh();windows_mode=win;
+            key(1000,alt_first?alts[a]:shifts[s],true);
+            key(1010,alt_first?shifts[s]:alts[a],true);
+            key(1020,p,true);
+            const int held[]={alts[a],shifts[s],p};
+            for(int i=0;i<3;i++)key(1050+i*10,held[release_order[order][i]],false);
+            settled();size_t actual_n=semantic_downs(actual);
+            CHECK(actual_n==n);
+            for(size_t i=0;i<n && i<actual_n;i++) {
+                CHECK(expected[i].code==actual[i].code);
+                CHECK(expected[i].mods==actual[i].mods);
+            }
+            if(before!=failures) {
+                fprintf(stderr,"  Alt+Shift roll OS=%d alt=%d shift=%d key=%d first=%d order=%zu\n",
+                        win,alts[a],shifts[s],p,alt_first,order);
+                return;
+            }
+        }
+    }
+}
+
+static void test_letter_then_one_or_two_navigation_taps(void) {
+    const int mods[]={-1,35,67,68,66,69};
+    for(int win=0;win<2;win++)for(size_t m=0;m<ARRAY_SIZE(mods);m++)
+    for(int count=1;count<=2;count++)for(int overlap=0;overlap<4;overlap++) {
+        fresh();windows_mode=win;
+        key(1000,29,true);
+        if(overlap==0)key(1005,29,false);
+        if(mods[m]>=0)key(1010,mods[m],true);
+        key(1020,38,true);
+        if(overlap==1)key(1025,29,false);
+        key(1030,38,false);
+        if(overlap==2)key(1035,29,false);
+        if(count==2){key(1040,38,true);key(1050,38,false);}
+        if(overlap==3)key(1055,29,false);
+        if(mods[m]>=0)key(1060,mods[m],false);
+        settled();CHECK(downs(A,0)==1);CHECK(downs(BACKSPACE,-1)==(size_t)count);
+        CHECK(downs(KP_PLUS,-1)==0);
+    }
+}
+
+static void test_repeated_fast_plus_rolls(void) {
+    for(int win=0;win<2;win++)for(int order=0;order<2;order++) {
+        fresh();windows_mode=win;
+        for(int i=0;i<8;i++) {
+            int t=1000+i*70;
+            key(t,38,true);key(t+15,29,true);
+            key(t+30,order?29:38,false);key(t+45,order?38:29,false);
+        }
+        settled();CHECK(downs(KP_PLUS,-1)==8);CHECK(downs(A,-1)==0);
+        CHECK(downs(BACKSPACE,-1)==0);
+    }
+}
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -792,6 +940,11 @@ int main(void) {
     run("nested replay preserves FIFO tail and rejects queue overflow",test_nested_replay_fifo_contract);
     run("NUM media and both Shift keys in macOS and Windows",test_num_media_both_os);
     run("NUM media keeps its press binding through Shift and NUM release rolls",test_num_media_rolls);
+    run("all Alt symbols retain early-release modifiers, including Alt+Shift",test_alt_symbol_rolls);
+    run("all Alt+Shift symbol press and release orders",test_alt_shift_symbol_release_orders);
+    run("navigation repeat is cancelled by an intervening key",test_navigation_repeat_requires_consecutive_taps);
+    run("letter first then one or two Backspace taps retains exact count",test_letter_then_one_or_two_navigation_taps);
+    run("repeated fast Alt+A rolls emit one plus each",test_repeated_fast_plus_rolls);
     printf("%u failed assertions\n",failures);
     return failures?1:0;
 }

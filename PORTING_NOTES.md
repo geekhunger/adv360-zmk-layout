@@ -79,12 +79,13 @@ Backspace delay has the same cause. Real-device comparison remains required.
 - Delete/Alt, Backspace/Alt, Tab/Shift, both Esc/Cmd-or-Ctrl keys, and
   Enter/Shift share one parallel 90 ms resolver. Each key owns its state, so
   simultaneous modifiers never accumulate serial delays.
-- Tap versus modifier is never inferred from keyboard side, opposite-hand use,
-  or a fixed hand rule. Overlapping action keys use balanced release order: when
-  the dual-role key is released first it remains a tap, while an action completed
-  first promotes the still-held dual-role key to its modifier. This preserves
-  fast Backspace-to-letter, Enter-to-letter, and ordinary text rolls without
-  making quick Alt/Shift/Cmd chords wait for the full 90 ms.
+- Tap versus modifier is never inferred from keyboard side or opposite-hand use.
+  An Alt/navigation key pressed before a still-overlapping action is a modifier,
+  even when Alt releases first (explicitly chosen by the user on 2026-10-22).
+  A letter pressed before Backspace is not such a target: subsequent Backspace
+  taps remain corrections, including while the earlier letter is still down.
+  Non-navigation dual-role keys retain their existing balanced-release/chord
+  rules. Quick chords do not need to wait for the full 90 ms.
 - Arrow presses are decisive live actions and promote pending modifiers on key
   down so selection and navigation remain responsive while held.
 - In an already detected multi-modifier chord, a released candidate remains
@@ -103,7 +104,8 @@ Backspace delay has the same cause. Real-device comparison remains required.
   in an overlapping arrow rollover. Releasing the older arrow therefore cannot
   remove Alt/Shift/Cmd from the newer arrow.
 - After a completed tap, pressing the same Delete/Backspace key again within
-  120 ms immediately holds its navigation key down. This reproduces the original
+  120 ms, with no intervening key press, immediately holds its navigation key down.
+  A modifier use also clears the older tap's repeat eligibility. This preserves
   tap, tap-and-hold gesture and lets the host repeat deletion continuously.
   A single synthetic tap uses its own 12 ms pulse rather than borrowing the
   physical hold state, keeping every key-down paired with exactly one key-up.
@@ -114,9 +116,9 @@ Backspace delay has the same cause. Real-device comparison remains required.
   modifier report to precede a following chord action. Releasing it without a
   following physical action removes Alt and retro-taps Delete/Backspace, so a
   slow or transport-delayed solitary correction is not swallowed. Before the
-  90 ms decision, releasing the key first emits its navigation tap and promotes
-  any older unresolved dual-role keys before that action (for example
-  Cmd+Backspace).
+  90 ms decision, releasing the key with no later overlapping action emits its
+  navigation tap and promotes any older unresolved dual-role keys before that
+  action (for example Cmd+Backspace).
 - Alt can coexist with Cmd/Ctrl/Shift on either half, including macOS
   Alt+Cmd+Esc; existing modifiers never force a tap/hold result.
 - When opposite arrows overlap on one axis, the old arrow is released before
@@ -145,6 +147,36 @@ Native regressions execute the pinned real mod-morph source with the production
 resolver, covering both OS modes, both Shift keys, repeated presses, and release
 permutations. CI additionally checks the compiled devicetree bindings. Neither
 test demonstrates actual display support or physical backlight operation.
+
+## Alt symbol rolls and navigation repeat (2026-10-22)
+
+Two resolver regressions were reproduced against the v0.3.11 source in both OS
+modes. `Alt down, A down, Alt up, A up` emitted Backspace and `a`, whereas the
+opposite release order produced `+`. A prior Backspace tap followed by a fast
+literal `num` and then holding right Alt entered Backspace repeat immediately:
+intervening letters did not invalidate the previous tap's 120 ms window.
+
+The user explicitly chose chord priority for Alt-before-letter overlap. A
+pending Alt/navigation release now promotes itself for an already queued,
+still-down later action. The existing modifier snapshot mechanism retains its
+Alt (and any Shift/Cmd/Ctrl) through semantic resolution. This applies to both
+Alt keys and all semantic symbol keys, not an A-specific mapping. Letter-first
+correction taps remain taps. Intentional Backspace-then-letter overlap is
+inherently indistinguishable from the chosen Alt chord; release Backspace before
+pressing the letter when that sequence is intended as correction plus typing.
+
+A different key-down or actual modifier promotion invalidates old repeat
+eligibility. A navigation tap interrupted by another press does not re-arm it.
+Consecutive tap-tap-hold deletion remains supported with the same 120 ms window.
+No 90/170 ms terms, scan timings, transport patches or symbol mappings changed.
+
+Native regressions compare every semantic key's early-Alt-release output with
+the existing modifier/symbol path, including either/both Shift, Cmd and Ctrl,
+taps and holds. Every Alt+Shift press/release permutation and exact one/two
+Backspace counts after an overlapping letter are covered under both OS modes.
+The old source fails the new repeat and rolled-plus tests; the changed source
+passes them and the prior suite. The reported two-`a` symptom was not separately
+reproduced, and these checks do not replace testing on the physical keyboard.
 
 ## Deliberate hardware normalization
 

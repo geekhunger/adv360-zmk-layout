@@ -1461,6 +1461,8 @@ static void activate_mod_tap_hold(struct mod_tap_state *state) {
     }
     state->hold_active = true;
     state->phase = MOD_TAP_HOLDING;
+    /* A real modifier use must not inherit an older navigation repeat. */
+    state->last_tap_released_at = INT64_MIN / 2;
 }
 
 static void release_mod_tap_hold(struct mod_tap_state *state) {
@@ -1811,6 +1813,16 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
     }
 
     if (ev->state) {
+        /* Tap-tap-hold is a consecutive gesture, not just two taps within a
+         * time window. A letter, Space or another modifier between them ends
+         * it, even when the input worker receives all events in one batch.
+         */
+        for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+            if (mod_taps[i].position != ev->position) {
+                mod_taps[i].last_tap_released_at = INT64_MIN / 2;
+            }
+        }
+
         /*
          * A timed-out Delete/Backspace hold is only a modifier once another
          * physical key uses it.  Without this marker, a slightly slow solitary
@@ -1963,8 +1975,20 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         k_work_cancel_delayable(&state->hold_work);
 
         if (mod_tap_is_navigation(state->action)) {
+            const int32_t active_position = latest_deferred_active_position();
+            if (active_position >= 0) {
+                /* A later action is already down: this is an Alt chord even
+                 * when Alt comes up first. Attach the released Alt to that
+                 * action, without waiting for a new timeout or emitting the
+                 * destructive Delete/Backspace tap first.
+                 */
+                state->phase = MOD_TAP_RELEASED_GRACE;
+                promote_unresolved_for_live_action(active_position);
+                break;
+            }
+
             /*
-             * Delete/Backspace are actions when they are released first. Any
+             * With no later action down, Delete/Backspace are taps. Any
              * other unresolved dual-role keys become the modifiers for that
              * action before it is replayed. Holding this key through a later
              * action still promotes it to Alt in the normal capture path.
@@ -1972,7 +1996,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
             const uint16_t tap_action = state->action;
             const uint8_t tap_mods = state->tap_mods;
             const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
-            state->last_tap_released_at = k_uptime_get();
+            state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : k_uptime_get();
             reset_mod_tap(state);
 
             /*
@@ -2021,7 +2045,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     }
     case MOD_TAP_REPEAT_DOWN:
         handle_navigation(mod_tap_to_navigation(state->action), false, event);
-        state->last_tap_released_at = k_uptime_get();
+        state->last_tap_released_at = state->interrupted ? INT64_MIN / 2 : k_uptime_get();
         reset_mod_tap(state);
         break;
     case MOD_TAP_HOLDING:

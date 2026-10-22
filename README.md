@@ -16,12 +16,14 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - originale QMK-Timings: 90 ms für alle Dual-Role-Modifier, 170 ms für Buchstaben
 - ein gemeinsamer paralleler 90-ms-Resolver für alle sechs Dual-Role-Tasten;
   unbenutzte Delete-/Backspace-Holds werden beim Loslassen rückwirkend getappt
-- ausbalancierte Roll-Erkennung über die Loslassreihenfolge statt Seitenheuristiken
+- Roll-Erkennung ohne Seitenheuristiken; Alt vor einer überlappenden Zeichentaste
+  bleibt Alt, auch wenn Alt zuerst losgelassen wird
 - 12-ms-Toleranz für knapp zu früh losgelassene Mehrfach-Modifier
 - originale QMK-Tap-Dance-Zählung für schnelle Doppelbuchstaben
 - originale QMK-Wiederholungszahl auch für wiederholbare Modifier-Symbole
 - 170 ms für Buchstaben-Holds und zum Abschluss einer ununterbrochenen Tap-Serie
-- 120-ms-Fenster für „tippen, erneut tippen und halten“ bei Delete/Backspace
+- 120-ms-Fenster für unmittelbar aufeinanderfolgendes „tippen, erneut tippen und
+  halten“ bei Delete/Backspace; eine Zwischentaste beendet diese Vormerkung
 - gepaarte 12-ms-HID-Pulse mit auf die wiederholte Taste begrenzter
   Reihenfolge-Barriere über BLE, damit Space keinen Doppelbuchstaben überholt,
   ohne Backspace oder Modifier hinter anderen Buchstabenpulsen anzustauen

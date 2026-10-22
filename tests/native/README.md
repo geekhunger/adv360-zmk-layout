@@ -32,6 +32,14 @@ Coverage includes:
   Timing sweeps also cover Delete/Backspace, delayed reports, and cleanup.
 - Single Backspace durations, modified Backspace repetitions, tap-tap-hold
   repeat, semantic holds, Windows navigation, and representative symbol mappings.
+- All semantic keys with either Alt and additional Shift/Cmd/Ctrl: early Alt
+  release must match the existing symbol output, with no Delete/Backspace.
+  Alt+either Shift is checked in both press orders and all six release orders.
+- A letter before one/two Backspace taps preserves their exact count, even with
+  overlapping release and an additional modifier. An intervening key cancels
+  the old Delete/Backspace repeat window; consecutive tap-tap-hold still works.
+- Eight successive rolled Alt+A chords yield eight plus signs, not `a` or
+  Backspace, under both OS modes and either Alt/A release order.
 - Delayed pulse modifier snapshots and 2,000 seeded mixed sequences of 100
   events each, plus 50,000 events without resetting the resolver. Once all
   physical keys are released and timers settle, the HID
