@@ -17,6 +17,7 @@
 #include <zmk/events/position_state_changed.h>
 #include <zmk/hid.h>
 #include <zmk/keymap.h>
+#include <adv360_trace.h>
 
 #include <dt-bindings/zmk/adv2_layout.h>
 #include <dt-bindings/zmk/keys.h>
@@ -190,6 +191,7 @@ static const struct modifier_entry modifier_entries[] = {
 };
 
 static void emit_code(uint32_t keycode, bool pressed) {
+    adv360_trace_emit(keycode, pressed, zmk_hid_get_explicit_mods());
     raise_zmk_keycode_state_changed_from_encoded(keycode, pressed, k_uptime_get());
 }
 
@@ -1147,12 +1149,42 @@ static int replay_after_mod_tap_capture(struct zmk_position_state_changed_event 
     return result < 0 ? result : 0;
 }
 
-static int adv2_position_listener(const zmk_event_t *eh) {
+static int adv2_position_stages(const zmk_event_t *eh) {
     int result = mod_tap_capture_position_listener(eh);
     if (result != ZMK_EV_EVENT_BUBBLE) {
         return result;
     }
     return semantic_tap_dance_position_listener(eh);
+}
+
+static void trace_resolver_state(uint8_t stage, const zmk_event_t *eh, int result) {
+#ifdef CONFIG_ADV360_SCOPED_TRACE
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    if (!ev || !adv360_trace_allowed_position(ev->position)) {
+        return;
+    }
+    int phase = -1;
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].position == ev->position) {
+            phase = mod_taps[i].phase;
+            break;
+        }
+    }
+    const uint32_t state = deferred_input_event_count |
+        ((uint32_t)pulse_deferred_event_count << 8) |
+        ((uint32_t)pulse_order_barrier_active << 16) |
+        ((uint32_t)zmk_keymap_layer_active(NUMPAD_LAYER) << 17) |
+        ((uint32_t)(zmk_hid_get_explicit_mods() & MOD_ALT) << 24);
+    adv360_trace_position(stage, ev->position, ev->state,
+                          (phase + 1) | ((result & 0xff) << 8), (int32_t)state);
+#endif
+}
+
+static int adv2_position_listener(const zmk_event_t *eh) {
+    trace_resolver_state(ADV_TRACE_RESOLVER_IN, eh, 0);
+    int result = adv2_position_stages(eh);
+    trace_resolver_state(ADV_TRACE_RESOLVER_OUT, eh, result);
+    return result;
 }
 
 static uint32_t nav_keycode(uint16_t action) {
@@ -1927,6 +1959,25 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     if (state == NULL || event.position >= ADV2_MAX_POSITIONS) {
         return -EINVAL;
     }
+
+#ifdef CONFIG_ADV360_SCOPED_TRACE
+    /* Only this key's own edge interval, never another key's identity. On
+     * press: time since last eligible tap release; on release: hold duration.
+     * 60001 means no recent eligible edge (including the invalid sentinel).
+     */
+    if (adv360_trace_allowed_position(event.position)) {
+        int64_t previous = pressed ? state->last_tap_released_at : state->input_pressed_at;
+        int32_t gap = 60001;
+        if (previous >= 0 && event.timestamp >= previous && event.timestamp - previous <= 60000) {
+            gap = (int32_t)(event.timestamp - previous);
+        }
+        int32_t flags = state->phase |
+            ((int32_t)zmk_keymap_layer_active(NUMPAD_LAYER) << 8) |
+            ((int32_t)state->interrupted << 9) |
+            ((int32_t)state->hold_active << 10);
+        adv360_trace_position(ADV_TRACE_MOD_TAP_INPUT, event.position, pressed, flags, gap);
+    }
+#endif
 
     if (pressed) {
         /*

@@ -324,3 +324,51 @@ the fix. The tested targets include all four arrows, Space, Delete and Backspace
 The minimal case directly established lost arrow/Space releases, not the reported
 Backspace stall. Queue overflow and real USB/BLE scheduling are not simulated
 away by these tests, so hardware symptom resolution remains unverified.
+
+## Temporary Alt-hold diagnostic (v0.3.13-trace1)
+
+Based on v0.3.12 plus `d500964`: an unused solitary Alt hold of at least 90 ms
+must not delete on release or arm deletion repeat. Short taps and intentional
+tap-tap-hold remain available. Navigation tap duration/repeat eligibility use
+the same key's input-edge timestamps, not time spent dispatching buffered input.
+The right-only continuous deletion after a two-second pause is NOT yet explained.
+The native model does not reproduce it from one clean standalone press; injected
+extra press/release edges and an active NUM layer are hypotheses to distinguish,
+not measured findings. No further debounce or global timing change is made.
+
+This branch adds a disabled-at-boot, explicitly armed recorder to BOTH halves.
+It retains only positions 35 (Alt/Delete), 38 (Alt/Backspace), 70 (NUM), allowed
+Delete/Backspace/Alt output usages, NUM status, phase/queue sizes and own-key edge
+intervals. No letter identities, text, other modifiers, or raw reports are saved.
+The optional USB filter is not hooked into the USB transport in this build.
+General logging and console output stay disabled. The finite RAM buffer holds
+2048 records per half, freezes on overflow and stops within 60 seconds. No trace
+data is streamed while capturing. Diagnostic serial export only follows STOP/DUMP.
+
+The collector uses protocol version 2 and verifies each half before arming.
+`--self-test` opens no device; `--probe` requests INFO without starting a recording.
+Capture requires renewed user consent ("Logger bereit"), two explicitly verified
+keyboard serial ports, a new local output file (mode 0600), and at most 60 seconds.
+SIGINT/"schluss" stops capture; firmware also has its own independent timeout.
+The serial function does not parse chat text; the operator must interrupt the
+collector when "schluss" is received. Both halves are stopped before export.
+Existing logger sources/recordings and production rollback UF2 pairs are retained.
+
+Protocol records are `T us stage code down a b`, with independent relative clocks
+per half. Stages 1/10 are debounced scan/scan-queue result, 2 is split reception,
+9 is split notification result, 3/4 are resolver entry/exit, 5 is allowed emitted
+usage, and 11 is the dual-role input decision. Scan hooks are AFTER debouncing;
+they cannot prove the absence of raw electrical bounce filtered by the scanner.
+In stages 3/4, `a` contains phase+1 and result in bits 8..15; `b` contains modifier
+queue count (0..7), pulse queue count (8..15), pulse barrier (16), NUM (17) and
+Alt-only modifier mask (24..31). Stage 11 `a` contains phase (0..7), NUM (8),
+interrupted (9), hold-active (10); `b` is time since eligible previous tap release
+on press, or own-key hold duration on release. 60001 means unavailable/outside
+the 60-second interval. Stage 5 records only Alt modifier bits 0x44.
+
+CI checks native resolver regressions in both listener orders and with trace
+hooks enabled, recorder allowlists/bounds, collector rejection rules, compiled
+NUM mappings, 5/5 debounce and linked recorder symbols on both halves. The extra
+CDC interface and trace hooks can affect scheduling: a successful build is not
+proof of hardware symptom resolution. This is a diagnostic prerelease, not a
+replacement of the production release until the physical tests are evaluated.

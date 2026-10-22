@@ -1,0 +1,5 @@
+&zephyr_udc0 {
+    adv360_trace_uart: adv360_trace_uart {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};

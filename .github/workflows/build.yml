@@ -1,6 +1,6 @@
 on: [push, pull_request, workflow_dispatch]
 
-name: Build
+name: Build (Alt diagnostic)
 
 concurrency:
   group: firmware-${{ github.ref }}
@@ -48,6 +48,7 @@ jobs:
         run: |
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_REVERSE_LISTENERS=1 sh tests/native/run.sh
+          CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_TRACE_HOOKS=1 sh tests/native/run.sh
       - name: Matrix debounce regressions
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_debounce.sh
       - name: Apply split and USB transport patches
@@ -60,10 +61,18 @@ jobs:
           done
       - name: USB report ownership regressions
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_usb.sh
+      - name: Scoped trace privacy and bounds regressions
+        run: |
+          CC=gcc sh tests/native/run_trace.sh
+          python3 tools/adv360_trace_collector.py --self-test
+      - name: Apply diagnostic hooks
+        run: |
+          git -C zmk apply --check "${GITHUB_WORKSPACE}/patches/zmk-scoped-timing-trace.patch"
+          git -C zmk apply "${GITHUB_WORKSPACE}/patches/zmk-scoped-timing-trace.patch"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
-        run: west build -s zmk/app -d build/left -b adv360_left -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
+        run: west build -s zmk/app -d build/left -b adv360_left -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}" -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.conf" -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.overlay"
       - name: Verify linked resolver event order
         run: |
           nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
@@ -72,7 +81,7 @@ jobs:
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)
-        run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
+        run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}" -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.conf" -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.overlay"
       - name: Adv360 Right Kconfig file
         run: grep -vE '(^#|^$)' build/right/zephyr/.config
       - name: Verify compiled matrix debounce
@@ -81,16 +90,26 @@ jobs:
             grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS=5' build/$half/zephyr/.config
             grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_RELEASE_MS=5' build/$half/zephyr/.config
           done
+      - name: Verify finite diagnostic recorder is linked on both halves
+        run: |
+          for half in left right; do
+            for setting in CONFIG_ADV360_SCOPED_TRACE=y CONFIG_USB_CDC_ACM=y '# CONFIG_LOG is not set' '# CONFIG_CONSOLE is not set'; do
+              grep -qx "$setting" build/$half/zephyr/.config
+            done
+            nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/$half/CMakeCache.txt)
+            "$nm_tool" build/$half/zephyr/zmk.elf | grep -q ' adv360_trace_position$'
+          done
       - name: Rename zmk.uf2
         run: cp build/left/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-left.uf2 && cp build/right/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-right.uf2
       - name: Archive (Adv360)
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-no-clique
+          name: firmware-alt-trace
           path: |
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2
   build-clique:
+    if: false
     runs-on: ubuntu-22.04
     container:
       image: zmkfirmware/zmk-build-arm:stable

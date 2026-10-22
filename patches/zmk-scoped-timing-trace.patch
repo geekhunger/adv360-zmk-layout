@@ -1,0 +1,72 @@
+diff --git a/app/src/physical_layouts.c b/app/src/physical_layouts.c
+index cb62ed8..59a75ac 100644
+--- a/app/src/physical_layouts.c
++++ b/app/src/physical_layouts.c
+@@ -6,6 +6,7 @@
+ 
+ #include <zephyr/devicetree.h>
+ #include <zephyr/device.h>
++#include <adv360_trace.h>
+ #include <zephyr/pm/device.h>
+ #include <zephyr/pm/device_runtime.h>
+ #include <zephyr/drivers/kscan.h>
+@@ -189,7 +190,11 @@ static void zmk_physical_layout_kscan_callback(const struct device *dev, uint32_
+         .column = column,
+         .state = (pressed ? ZMK_KSCAN_EVENT_STATE_PRESSED : ZMK_KSCAN_EVENT_STATE_RELEASED)};
+ 
+-    k_msgq_put(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT);
++    int trace_position = zmk_matrix_transform_row_column_to_position(active->matrix_transform,
++                                                                     row, column);
++    adv360_trace_position(ADV_TRACE_SCAN, trace_position, pressed, 0, 0);
++    int queue_result = k_msgq_put(&physical_layouts_kscan_msgq, &ev, K_NO_WAIT);
++    adv360_trace_position(ADV_TRACE_SCAN_QUEUE, trace_position, pressed, queue_result, 0);
+     k_work_submit(&msg_processor.work);
+ }
+ 
+diff --git a/app/src/split/bluetooth/central.c b/app/src/split/bluetooth/central.c
+index 57832c9..e01a726 100644
+--- a/app/src/split/bluetooth/central.c
++++ b/app/src/split/bluetooth/central.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <zephyr/types.h>
++#include <adv360_trace.h>
+ #include <zephyr/init.h>
+ 
+ #include <zephyr/bluetooth/bluetooth.h>
+@@ -391,6 +392,7 @@ static uint8_t split_central_notify_func(struct bt_conn *conn,
+             if (slot->changed_positions[i] & BIT(j)) {
+                 uint32_t position = (i * 8) + j;
+                 bool pressed = slot->position_state[i] & BIT(j);
++                adv360_trace_position(ADV_TRACE_SPLIT_RX, position, pressed, 0, 0);
+                 struct zmk_position_state_changed ev = {.source =
+                                                             peripheral_slot_index_for_conn(conn),
+                                                         .position = position,
+@@ -1355,4 +1357,4 @@ static int zmk_split_bt_central_listener_cb(const zmk_event_t *eh) {
+ }
+ 
+ ZMK_LISTENER(zmk_split_bt_central, zmk_split_bt_central_listener_cb);
+-ZMK_SUBSCRIPTION(zmk_split_bt_central, zmk_physical_layout_selection_changed);
+\ No newline at end of file
++ZMK_SUBSCRIPTION(zmk_split_bt_central, zmk_physical_layout_selection_changed);
+diff --git a/app/src/split/bluetooth/service.c b/app/src/split/bluetooth/service.c
+index 092414b..ac83fdc 100644
+--- a/app/src/split/bluetooth/service.c
++++ b/app/src/split/bluetooth/service.c
+@@ -6,6 +6,7 @@
+ 
+ #include <zephyr/drivers/sensor.h>
+ #include <zephyr/types.h>
++#include <adv360_trace.h>
+ #include <zephyr/sys/util.h>
+ #include <zephyr/sys/byteorder.h>
+ #include <zephyr/init.h>
+@@ -358,6 +359,7 @@ void send_position_state_callback(struct k_work *work) {
+     }
+ 
+     err = bt_gatt_notify(NULL, &split_svc.attrs[1], &state, sizeof(state));
++    adv360_trace_snapshot(state, sizeof(state), err);
+     if (err == 0) {
+         k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
+         reschedule_position_notification(K_MSEC(POSITION_NOTIFICATION_PACE_MS));
