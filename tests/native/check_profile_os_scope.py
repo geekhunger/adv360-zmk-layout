@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 # Installed reference: 7fc24060f439241154ae71cc6b044a9730f3afd1.
+# config/version.dtsi is generated build provenance, not input behavior.
 BASE_HASHES = {
     "config/adv360.conf": "27134d9acff8fbd0970babca6ec3d6577a98dd2d8918869370e54f5517b0cccd",
     "config/adv360.keymap": "6bdc6f7de7224c84cb28aea9a0cea9478da7d98517eacdcb5f5d4e35ba9854c9",
@@ -26,7 +27,6 @@ BASE_HASHES = {
     "config/info.json": "2d2e2289898871fa1ee3d477702318a11fe9e1752cc9b6926ecef5c266fd6dcd",
     "config/keymap.json": "2c0d10a6843fdf48b49f2f1e936dc9b8cc303c0cc25fa728c92a570f4b127464",
     "config/macros.dtsi": "a1a469cef334a3446a24025655d0ad3a628c0f33b222d3f7baf3507350df146a",
-    "config/version.dtsi": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "config/west.yml": "4d487bc9df5a8091c5e01ad86bf641cd41142169584604d65f9be3f3be8f2c98",
     "diagnostic-config/scoped-trace.conf": "e14fe0619ba128d7deba9158dece1340c21bc4c9f042745139112c72532bd6ec",
     "diagnostic-config/scoped-trace.overlay": "29b4934d94b332b3ca3c440c1e054cfbcb9ff2a4513ff9ea4c46fc5ced5525a4",
