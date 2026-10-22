@@ -1,8 +1,8 @@
 diff --git a/app/src/split/bluetooth/service.c b/app/src/split/bluetooth/service.c
-index 2501f5f..273e401 100644
+index 2501f5f..092414b 100644
 --- a/app/src/split/bluetooth/service.c
 +++ b/app/src/split/bluetooth/service.c
-@@ -320,31 +320,76 @@ K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZ
+@@ -320,31 +320,83 @@ K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZ
  
  struct k_work_q service_work_q;
  
@@ -18,12 +18,19 @@ index 2501f5f..273e401 100644
 + * a failed/disconnected TX would otherwise leak the count and eventually stop
 + * the split transport permanently until reboot.
 + */
++#define POSITION_NOTIFICATION_PACE_MS 4
++#define POSITION_NOTIFICATION_RETRY_MS 1
++
 +static struct k_work_delayable service_position_notify_work;
 +
  K_MSGQ_DEFINE(position_state_msgq, sizeof(char[POS_STATE_LEN]),
                CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_POSITION_QUEUE_SIZE, 4);
  
 +static void schedule_position_notification(k_timeout_t delay) {
++    k_work_schedule_for_queue(&service_work_q, &service_position_notify_work, delay);
++}
++
++static void reschedule_position_notification(k_timeout_t delay) {
 +    k_work_reschedule_for_queue(&service_work_q, &service_position_notify_work, delay);
 +}
 +
@@ -39,30 +46,31 @@ index 2501f5f..273e401 100644
 +    int err = k_msgq_peek(&position_state_msgq, &state);
 +    if (err) {
 +        return;
-+    }
+     }
+-};
+-
 +
+-K_WORK_DEFINE(service_position_notify_work, send_position_state_callback);
 +    err = bt_gatt_notify(NULL, &split_svc.attrs[1], &state, sizeof(state));
 +    if (err == 0) {
 +        k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+        schedule_position_notification(K_MSEC(1));
++        reschedule_position_notification(K_MSEC(POSITION_NOTIFICATION_PACE_MS));
 +        return;
 +    }
 +
 +    if (err == -ENOMEM || err == -EAGAIN) {
 +        /* Preserve the head snapshot and retry after Bluetooth frees a buffer. */
 +        LOG_DBG("Position notification backpressured (%d), retrying", err);
-+        schedule_position_notification(K_MSEC(1));
++        reschedule_position_notification(K_MSEC(POSITION_NOTIFICATION_RETRY_MS));
 +        return;
-     }
--};
- 
--K_WORK_DEFINE(service_position_notify_work, send_position_state_callback);
++    }
++
 +    /* Match the old disconnected/unsubscribed behavior: do not replay stale
 +     * input after reconnect, but continue with any newer snapshot.
 +     */
 +    LOG_WRN("Position notification failed (%d), discarding snapshot", err);
 +    k_msgq_get(&position_state_msgq, &state, K_NO_WAIT);
-+    schedule_position_notification(K_NO_WAIT);
++    reschedule_position_notification(K_NO_WAIT);
 +}
  
  int send_position_state() {
@@ -89,7 +97,7 @@ index 2501f5f..273e401 100644
          }
          default:
              LOG_WRN("Failed to queue position state to send (%d)", err);
-@@ -352,7 +397,7 @@ int send_position_state() {
+@@ -352,7 +404,7 @@ int send_position_state() {
          }
      }
  
@@ -98,7 +106,7 @@ index 2501f5f..273e401 100644
  
      return 0;
  }
-@@ -445,6 +490,7 @@ int zmk_split_bt_report_input(uint8_t reg, uint8_t type, uint16_t code, int32_t
+@@ -445,6 +497,7 @@ int zmk_split_bt_report_input(uint8_t reg, uint8_t type, uint16_t code, int32_t
  static int service_init(void) {
      static const struct k_work_queue_config queue_config = {
          .name = "Split Peripheral Notification Queue"};
