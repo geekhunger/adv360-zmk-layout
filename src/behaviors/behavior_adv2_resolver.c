@@ -1586,9 +1586,19 @@ static void mod_tap_hold_timer(struct k_work *item) {
     }
 }
 
-static void resolve_expired_mod_taps(int64_t now) {
+static void resolve_expired_mod_taps(int64_t now,
+                                     int32_t skipped_navigation_release_position) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
         struct mod_tap_state *state = &mod_taps[i];
+        /*
+         * Delete/Backspace do not need a speculative Alt transition when their
+         * own release is the event that crosses the 90 ms threshold. Let the
+         * behavior consume that release as the existing retro tap instead.
+         */
+        if (state->position == skipped_navigation_release_position &&
+            mod_tap_is_navigation(state->action)) {
+            continue;
+        }
         if (state->phase == MOD_TAP_PENDING && state->physically_pressed &&
             now - state->pressed_at >= MOD_TAP_TAPPING_TERM_MS) {
             k_work_cancel_delayable(&state->hold_work);
@@ -1739,8 +1749,10 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
         }
     }
 
-    resolve_expired_mod_taps(k_uptime_get());
     const bool mod_tap_position = is_mod_tap_position(ev->position);
+    const int32_t skipped_navigation_release_position =
+        (!ev->state && mod_tap_position) ? ev->position : -1;
+    resolve_expired_mod_taps(k_uptime_get(), skipped_navigation_release_position);
 
     if (!ev->state && !mod_tap_position && latched_mod_tap_targets(ev->position) &&
         !deferred_position_is_active(ev->position)) {
@@ -1824,7 +1836,14 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         state->pressed_at = now;
         state->phase = MOD_TAP_PENDING;
         queue_mod_tap_marker(state, event);
-        k_work_schedule(&state->hold_work, K_MSEC(MOD_TAP_TAPPING_TERM_MS));
+        /*
+         * A standalone Delete/Backspace hold has no observable modifier action.
+         * Resolve it synchronously on the next physical event instead of racing
+         * a system-workqueue timer against the split key-release notification.
+         */
+        if (!mod_tap_is_navigation(action)) {
+            k_work_schedule(&state->hold_work, K_MSEC(MOD_TAP_TAPPING_TERM_MS));
+        }
         return ZMK_BEHAVIOR_OPAQUE;
     }
 
