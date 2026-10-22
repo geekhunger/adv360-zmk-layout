@@ -90,6 +90,7 @@ struct mod_tap_state {
     int64_t last_tap_released_at;
     uint64_t latch_targets[2];
     enum mod_tap_phase phase;
+    uint8_t tap_mods;
     bool physically_pressed;
     bool chord_participant;
     bool interrupted;
@@ -104,6 +105,8 @@ static uint8_t mod_tap_hold_counts[8];
 struct tap_pulse_state {
     uint32_t keycode;
     uint8_t queued;
+    uint8_t queued_head;
+    uint8_t queued_mods[UINT8_MAX];
     bool active;
     struct k_work_delayable release_work;
 };
@@ -114,15 +117,18 @@ static struct tap_pulse_state tap_pulses[ADV2_TAP_PULSE_COUNT];
  * A repeated identical HID usage needs an up report and a later second down
  * report.  While that sequence is in flight, a following physical key must not
  * overtake the second down (for example, "pp " becoming "p p").  Position
- * events have already passed the mod-tap capture listener when they reach the
- * semantic interrupter, so replay them immediately after that listener once
- * the repeated pulse is complete.
+ * events are held at their first unfinished processing stage. Replay must
+ * neither skip the mod-tap decision nor run an already completed stage twice.
  */
-static struct zmk_position_state_changed_event
-    pulse_deferred_events[ADV2_CAPTURED_PULSE_EVENTS];
+struct pulse_deferred_event {
+    struct zmk_position_state_changed_event event;
+    bool after_mod_tap_capture;
+};
+static struct pulse_deferred_event pulse_deferred_events[ADV2_CAPTURED_PULSE_EVENTS];
 static uint8_t pulse_deferred_event_count;
 static bool pulse_order_barrier_active;
 static bool pulse_order_barrier_replaying;
+static bool pulse_order_replay_captured;
 static uint32_t pulse_order_barrier_keycode;
 static struct k_work_delayable pulse_order_barrier_work;
 
@@ -136,6 +142,7 @@ struct deferred_input_event {
     enum deferred_input_type type;
     struct zmk_position_state_changed_event position_event;
     uint16_t mod_tap_action;
+    uint8_t mod_tap_mods;
     struct zmk_behavior_binding_event binding_event;
     struct mod_tap_state *mod_tap_state;
 };
@@ -158,11 +165,15 @@ static struct semantic_tap_dance semantic_dances[ADV2_SEMANTIC_COUNT];
 
 static void resolve_semantic(uint16_t id, bool held, uint8_t count);
 static int mod_tap_capture_position_listener(const zmk_event_t *eh);
+static int semantic_tap_dance_position_listener(const zmk_event_t *eh);
 static void schedule_pulse_order_replay_if_ready(void);
+static void release_latched_mod_taps(int32_t position);
 
 /* Must run before the Tap-Dance interrupter so replayed events follow normal QMK order. */
 ZMK_LISTENER(adv2_mod_tap_capture, mod_tap_capture_position_listener);
 ZMK_SUBSCRIPTION(adv2_mod_tap_capture, zmk_position_state_changed);
+ZMK_LISTENER(adv2_semantic_tap_dance, semantic_tap_dance_position_listener);
+ZMK_SUBSCRIPTION(adv2_semantic_tap_dance, zmk_position_state_changed);
 
 struct modifier_entry {
     uint8_t flag;
@@ -206,6 +217,7 @@ static bool cancel_tap_pulse(uint32_t keycode) {
 
         k_work_cancel_delayable(&pulse->release_work);
         pulse->queued = 0;
+        pulse->queued_head = 0;
         if (pulse->active) {
             pulse->active = false;
             emit_code(keycode, false);
@@ -243,9 +255,13 @@ static void tap_pulse_release(struct k_work *item) {
     }
 
     if (pulse->queued > 0) {
+        const uint8_t mods = pulse->queued_mods[pulse->queued_head];
+        pulse->queued_head = (pulse->queued_head + 1) % UINT8_MAX;
         pulse->queued--;
         pulse->active = true;
+        const uint8_t temporary_mods = activate_missing_modifiers(mods);
         emit_code(pulse->keycode, true);
+        release_temporary_modifiers(temporary_mods);
         k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
     }
 }
@@ -280,6 +296,11 @@ static void pulse_code(uint32_t keycode) {
 
     if (pulse->active || pulse->queued > 0) {
         if (pulse->queued < UINT8_MAX) {
+            /* Each delayed down owns its modifier snapshot. A physical
+             * modifier may have been released before this pulse is sent.
+             */
+            pulse->queued_mods[(pulse->queued_head + pulse->queued) % UINT8_MAX] =
+                zmk_hid_get_explicit_mods();
             pulse->queued++;
             pulse_order_barrier_active = true;
             pulse_order_barrier_keycode = keycode;
@@ -289,6 +310,7 @@ static void pulse_code(uint32_t keycode) {
 
     pulse->keycode = keycode;
     pulse->queued = 0;
+    pulse->queued_head = 0;
     pulse->active = true;
     emit_code(keycode, true);
     k_work_reschedule(&pulse->release_work, K_MSEC(TAP_PULSE_MS));
@@ -303,14 +325,23 @@ static bool tap_pulse_busy(uint32_t keycode) {
     return false;
 }
 
-static int defer_pulse_position_event(const struct zmk_position_state_changed *event) {
+static int defer_pulse_position_event(const struct zmk_position_state_changed *event,
+                                      bool after_mod_tap_capture) {
+    if (pulse_order_barrier_replaying) {
+        pulse_order_replay_captured = true;
+        pulse_deferred_events[0].after_mod_tap_capture = after_mod_tap_capture;
+        return 0;
+    }
+
     if (pulse_deferred_event_count >= ADV2_CAPTURED_PULSE_EVENTS) {
         LOG_ERR("Repeated-key position buffer full");
         return -ENOMEM;
     }
 
-    pulse_deferred_events[pulse_deferred_event_count++] =
-        copy_raised_zmk_position_state_changed(event);
+    pulse_deferred_events[pulse_deferred_event_count++] = (struct pulse_deferred_event){
+        .event = copy_raised_zmk_position_state_changed(event),
+        .after_mod_tap_capture = after_mod_tap_capture,
+    };
     return 0;
 }
 
@@ -330,11 +361,15 @@ static void pulse_order_barrier_worker(struct k_work *item) {
         pulse_order_barrier_active = false;
         pulse_order_barrier_keycode = 0;
         pulse_order_barrier_replaying = true;
-        int result = ZMK_EVENT_RAISE_AFTER(pulse_deferred_events[0],
-                                           adv2_mod_tap_capture);
+        pulse_order_replay_captured = false;
+        int result = pulse_deferred_events[0].after_mod_tap_capture
+                         ? ZMK_EVENT_RAISE_AFTER(pulse_deferred_events[0].event,
+                                                 adv2_mod_tap_capture)
+                         : ZMK_EVENT_RAISE_AT(pulse_deferred_events[0].event,
+                                              adv2_mod_tap_capture);
         pulse_order_barrier_replaying = false;
 
-        if (pulse_order_barrier_active) {
+        if (pulse_order_replay_captured) {
             schedule_pulse_order_replay_if_ready();
             return;
         }
@@ -348,6 +383,7 @@ static void pulse_order_barrier_worker(struct k_work *item) {
             LOG_ERR("Failed to replay repeated-key position event (%d)", result);
         }
         if (pulse_order_barrier_active) {
+            schedule_pulse_order_replay_if_ready();
             return;
         }
     }
@@ -1064,10 +1100,7 @@ static int semantic_tap_dance_position_listener(const zmk_event_t *eh) {
     }
 
     if (pulse_order_barrier_active) {
-        int result = 0;
-        if (!pulse_order_barrier_replaying) {
-            result = defer_pulse_position_event(ev);
-        }
+        int result = defer_pulse_position_event(ev, true);
         schedule_pulse_order_replay_if_ready();
         return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
     }
@@ -1085,19 +1118,22 @@ static int semantic_tap_dance_position_listener(const zmk_event_t *eh) {
     }
 
     if (pulse_order_barrier_active) {
-        int result = 0;
-        if (!pulse_order_barrier_replaying) {
-            result = defer_pulse_position_event(ev);
-        }
+        int result = defer_pulse_position_event(ev, true);
         schedule_pulse_order_replay_if_ready();
         return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
     }
 
-    return ZMK_EV_EVENT_BUBBLE;
+    /* Every behavior now either emitted its press or saved the modifier
+     * snapshot needed for a deferred tap. This includes ordinary &kp keys
+     * such as Space: none may retain ownership of a physical modifier until
+     * key-up, otherwise repressing that modifier can be silently discarded.
+     */
+    struct zmk_position_state_changed_event pressed_event =
+        copy_raised_zmk_position_state_changed(ev);
+    int result = ZMK_EVENT_RAISE_AFTER(pressed_event, adv2_semantic_tap_dance);
+    release_latched_mod_taps(ev->position);
+    return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
 }
-
-ZMK_LISTENER(adv2_semantic_tap_dance, semantic_tap_dance_position_listener);
-ZMK_SUBSCRIPTION(adv2_semantic_tap_dance, zmk_position_state_changed);
 
 static uint32_t nav_keycode(uint16_t action) {
     switch (action) {
@@ -1243,6 +1279,7 @@ static bool is_mod_tap_position(int32_t position) {
 
 static void reset_mod_tap(struct mod_tap_state *state) {
     state->phase = MOD_TAP_IDLE;
+    state->tap_mods = 0;
     state->physically_pressed = false;
     state->hold_active = false;
     state->hold_keycode = 0;
@@ -1277,6 +1314,7 @@ static void queue_mod_tap_marker(struct mod_tap_state *state,
         &deferred_input_events[deferred_input_event_count++];
     deferred->type = DEFERRED_MOD_TAP_PENDING;
     deferred->mod_tap_action = state->action;
+    deferred->mod_tap_mods = state->tap_mods;
     deferred->binding_event = event;
     deferred->mod_tap_state = state;
 }
@@ -1507,19 +1545,14 @@ static void release_latched_mod_taps(int32_t position) {
 static void latch_active_mod_tap_holds(int32_t target_position) {
     for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
         struct mod_tap_state *state = &mod_taps[i];
-        /*
-         * A physically released modifier may already be latched to an older
-         * target. Let a rollover extend that latch to the next target before
-         * the older target releases it.
+        /* A released modifier belongs only to actions that already captured
+         * it. Extending it to later input leaks shortcuts into a new word.
          */
-        if (state->phase != MOD_TAP_HOLDING && state->phase != MOD_TAP_LATCHED) {
+        if (!state->physically_pressed || state->phase != MOD_TAP_HOLDING) {
             continue;
         }
 
         add_mod_tap_latch_target(state, target_position);
-        if (!state->physically_pressed) {
-            state->phase = MOD_TAP_LATCHED;
-        }
     }
 }
 
@@ -1530,8 +1563,16 @@ static void promote_unresolved_for_live_action(int32_t target_position) {
             continue;
         }
 
+        const bool was_released = state->phase == MOD_TAP_RELEASED_GRACE;
         k_work_cancel_delayable(&state->hold_work);
         activate_mod_tap_hold(state);
+        if (was_released) {
+            /* The grace window can attach a just-released chord member to
+             * this one action. It must not become an unowned permanent hold.
+             */
+            add_mod_tap_latch_target(state, target_position);
+            state->phase = MOD_TAP_LATCHED;
+        }
     }
 
     latch_active_mod_tap_holds(target_position);
@@ -1615,8 +1656,10 @@ static void resolve_expired_mod_taps(int64_t now,
     }
 }
 
-static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event) {
+static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event,
+                         uint8_t mods) {
     ARG_UNUSED(event);
+    const uint8_t temporary_mods = activate_missing_modifiers(mods);
 
     uint16_t navigation = mod_tap_to_navigation(action);
     if (navigation != 0) {
@@ -1629,6 +1672,7 @@ static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event
             tap_code(keycode);
         }
     }
+    release_temporary_modifiers(temporary_mods);
 }
 
 static bool resolve_mod_tap_marker_as_tap(struct mod_tap_state *state) {
@@ -1649,6 +1693,7 @@ static void resolve_grace_mod_tap(struct mod_tap_state *state) {
     struct mod_tap_state *synthetic_holds[ADV2_MOD_TAP_COUNT];
     uint8_t synthetic_hold_count = 0;
     const uint16_t tap_action = state->action;
+    const uint8_t tap_mods = state->tap_mods;
     const struct zmk_behavior_binding_event tap_event = {
         .position = state->position,
         .timestamp = state->grace_deadline - MOD_TAP_CHORD_GRACE_MS,
@@ -1675,7 +1720,7 @@ static void resolve_grace_mod_tap(struct mod_tap_state *state) {
     if (tap_queued) {
         release_deferred_input_events();
     } else {
-        tap_mod_tap(tap_action, tap_event);
+        tap_mod_tap(tap_action, tap_event, tap_mods);
     }
 
     /* A previously pressed dual-role modifier stays active through this
@@ -1704,7 +1749,7 @@ static void release_deferred_input_events(void) {
         deferred_input_event_count--;
 
         if (event.type == DEFERRED_MOD_TAP) {
-            tap_mod_tap(event.mod_tap_action, event.binding_event);
+            tap_mod_tap(event.mod_tap_action, event.binding_event, event.mod_tap_mods);
         } else if (event.type == DEFERRED_POSITION) {
             ZMK_EVENT_RAISE_AFTER(event.position_event, adv2_mod_tap_capture);
         } else {
@@ -1734,6 +1779,16 @@ static int mod_tap_capture_position_listener(const zmk_event_t *eh) {
     const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
     if (ev == NULL) {
         return ZMK_EV_EVENT_BUBBLE;
+    }
+
+    /* Preserve the entire physical event order while repeated HID pulses are
+     * draining. In particular, never resolve a release before its queued
+     * press has even reached the dual-role behavior.
+     */
+    if (pulse_order_barrier_active) {
+        int result = defer_pulse_position_event(ev, false);
+        schedule_pulse_order_replay_if_ready();
+        return result < 0 ? result : ZMK_EV_EVENT_CAPTURED;
     }
 
     if (ev->state) {
@@ -1837,6 +1892,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
 
         const int64_t now = k_uptime_get();
         mark_mod_tap_chord(state);
+        state->tap_mods = zmk_hid_get_explicit_mods();
         state->physically_pressed = true;
 
         if (mod_tap_is_navigation(action) && unresolved_mod_tap_count() == 0 &&
@@ -1874,6 +1930,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
              * action still promotes it to Alt in the normal capture path.
              */
             const uint16_t tap_action = state->action;
+            const uint8_t tap_mods = state->tap_mods;
             const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
             state->last_tap_released_at = k_uptime_get();
             reset_mod_tap(state);
@@ -1885,7 +1942,7 @@ static int handle_mod_tap(uint16_t action, bool pressed,
              */
             promote_unresolved_for_live_action(event.position);
             if (!tap_queued) {
-                tap_mod_tap(tap_action, event);
+                tap_mod_tap(tap_action, event, tap_mods);
             }
             release_latched_mod_taps(event.position);
             if (unresolved_mod_tap_count() == 0) {
@@ -1909,12 +1966,13 @@ static int handle_mod_tap(uint16_t action, bool pressed,
         }
 
         const uint16_t tap_action = state->action;
+        const uint8_t tap_mods = state->tap_mods;
         const bool tap_queued = resolve_mod_tap_marker_as_tap(state);
         state->last_tap_released_at = k_uptime_get();
         reset_mod_tap(state);
 
         if (!tap_queued) {
-            tap_mod_tap(tap_action, event);
+            tap_mod_tap(tap_action, event, tap_mods);
         }
         if (unresolved_mod_tap_count() == 0) {
             release_deferred_input_events();
@@ -1936,10 +1994,11 @@ static int handle_mod_tap(uint16_t action, bool pressed,
              * an otherwise unused hold must remain a Delete/Backspace tap.
              */
             const uint16_t tap_action = state->action;
+            const uint8_t tap_mods = state->tap_mods;
             release_mod_tap_hold(state);
             state->last_tap_released_at = k_uptime_get();
             reset_mod_tap(state);
-            tap_mod_tap(tap_action, event);
+            tap_mod_tap(tap_action, event, tap_mods);
         } else {
             release_mod_tap_hold(state);
             reset_mod_tap(state);
@@ -2016,12 +2075,14 @@ static int adv2_resolver_init(const struct device *dev) {
     for (size_t i = 0; i < ARRAY_SIZE(tap_pulses); i++) {
         tap_pulses[i].keycode = 0;
         tap_pulses[i].queued = 0;
+        tap_pulses[i].queued_head = 0;
         tap_pulses[i].active = false;
         k_work_init_delayable(&tap_pulses[i].release_work, tap_pulse_release);
     }
     pulse_deferred_event_count = 0;
     pulse_order_barrier_active = false;
     pulse_order_barrier_replaying = false;
+    pulse_order_replay_captured = false;
     pulse_order_barrier_keycode = 0;
     k_work_init_delayable(&pulse_order_barrier_work, pulse_order_barrier_worker);
     deferred_input_event_count = 0;

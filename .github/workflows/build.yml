@@ -44,6 +44,8 @@ jobs:
         run: west init -l config
       - name: West Update
         run: west update
+      - name: Resolver state and ordering regressions
+        run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
       - name: Apply split transport backpressure patch
         run: |
           patch_file="${GITHUB_WORKSPACE}/patches/zmk-split-notify-backpressure.patch"
