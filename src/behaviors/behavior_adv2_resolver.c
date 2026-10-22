@@ -21,6 +21,7 @@
 #include <dt-bindings/zmk/adv2_layout.h>
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/modifiers.h>
+#include <adv360_trace.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -189,6 +190,7 @@ static const struct modifier_entry modifier_entries[] = {
 };
 
 static void emit_code(uint32_t keycode, bool pressed) {
+    adv360_trace_emit(keycode, pressed, zmk_hid_get_explicit_mods());
     raise_zmk_keycode_state_changed_from_encoded(keycode, pressed, k_uptime_get());
 }
 
@@ -1147,12 +1149,36 @@ static int replay_after_mod_tap_capture(struct zmk_position_state_changed_event 
     return result < 0 ? result : 0;
 }
 
-static int adv2_position_listener(const zmk_event_t *eh) {
+static int adv2_position_stages(const zmk_event_t *eh) {
     int result = mod_tap_capture_position_listener(eh);
     if (result != ZMK_EV_EVENT_BUBBLE) {
         return result;
     }
     return semantic_tap_dance_position_listener(eh);
+}
+
+static void trace_resolver_state(uint8_t stage, const struct zmk_position_state_changed *ev,
+                                 int result) {
+#ifdef CONFIG_ADV360_SCOPED_TRACE
+    if (!ev || !adv360_trace_allowed_position(ev->position)) return;
+    int phase = -1;
+    for (size_t i = 0; i < ARRAY_SIZE(mod_taps); i++) {
+        if (mod_taps[i].position == ev->position) phase = mod_taps[i].phase;
+    }
+    uint32_t queues = deferred_input_event_count | (pulse_deferred_event_count << 8) |
+                      (pulse_order_barrier_active << 16) |
+                      ((uint32_t)zmk_hid_get_explicit_mods() << 24);
+    adv360_trace_position(stage, ev->position, ev->state,
+                          (phase + 1) | ((result & 0xff) << 8), (int32_t)queues);
+#endif
+}
+
+static int adv2_position_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+    trace_resolver_state(ADV_TRACE_RESOLVER_IN, ev, 0);
+    int result = adv2_position_stages(eh);
+    trace_resolver_state(ADV_TRACE_RESOLVER_OUT, ev, result);
+    return result;
 }
 
 static uint32_t nav_keycode(uint16_t action) {

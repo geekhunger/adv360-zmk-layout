@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: zmkfirmware/zmk-build-arm:stable
-    name: Build (Legacy)
+    name: Build (Scoped diagnostic)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_REVERSE_LISTENERS=1 sh tests/native/run.sh
       - name: Apply split and USB transport patches
         run: |
-          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
+          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
           for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
             patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
             git -C zmk apply --check "$patch_file"
@@ -58,10 +58,14 @@ jobs:
           done
       - name: USB report ownership regressions
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_usb.sh
+      - name: Trace privacy and lifetime regressions
+        run: CC=gcc sh tests/native/run_trace.sh
+      - name: Apply diagnostic-only trace hooks
+        run: git -C zmk apply "${GITHUB_WORKSPACE}/patches/zmk-scoped-timing-trace.patch"
       - name: West Zephyr export
         run: west zephyr-export
       - name: West Build (left)
-        run: west build -s zmk/app -d build/left -b adv360_left -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
+        run: west build -s zmk/app -d build/left -b adv360_left -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}" -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.conf" -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.overlay"
       - name: Verify linked resolver event order
         run: |
           nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/left/CMakeCache.txt)
@@ -69,19 +73,30 @@ jobs:
       - name: Adv360 Left Kconfig file
         run: grep -vE '(^#|^$)' build/left/zephyr/.config
       - name: West Build (right)
-        run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
+        run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}" -DEXTRA_CONF_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.conf" -DEXTRA_DTC_OVERLAY_FILE="${GITHUB_WORKSPACE}/diagnostic-config/scoped-trace.overlay"
       - name: Adv360 Right Kconfig file
         run: grep -vE '(^#|^$)' build/right/zephyr/.config
+      - name: Verify scoped trace configuration
+        run: |
+          for half in left right; do
+            grep -qx 'CONFIG_ADV360_SCOPED_TRACE=y' build/$half/zephyr/.config
+            grep -qx 'CONFIG_USB_CDC_ACM=y' build/$half/zephyr/.config
+            grep -qx '# CONFIG_LOG is not set' build/$half/zephyr/.config
+            grep -qx '# CONFIG_CONSOLE is not set' build/$half/zephyr/.config
+            nm_tool=$(sed -n 's/^CMAKE_NM:FILEPATH=//p' build/$half/CMakeCache.txt)
+            "$nm_tool" build/$half/zephyr/zmk.elf | grep ' adv360_trace_position$'
+          done
       - name: Rename zmk.uf2
         run: cp build/left/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-left.uf2 && cp build/right/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-right.uf2
       - name: Archive (Adv360)
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-no-clique
+          name: firmware-scoped-trace
           path: |
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2
   build-clique:
+    if: false
     runs-on: ubuntu-22.04
     container:
       image: zmkfirmware/zmk-build-arm:stable

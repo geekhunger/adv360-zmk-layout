@@ -1,5 +1,13 @@
 menu "Geekhunger Advantage 360 layout"
 
+config ADV360_SCOPED_TRACE
+    bool "Explicitly armed, privacy-scoped RAM timing trace"
+    default n
+    depends on USB_DEVICE_STACK
+    help
+      Temporary diagnostic build only. No letters or raw HID reports are stored.
+      USB serial START arms a maximum 60 second capture; DUMP stops and exports.
+
 config ZMK_BEHAVIOR_ADV2_RESOLVER
     bool "Advantage 2 compatible key resolver"
     default y

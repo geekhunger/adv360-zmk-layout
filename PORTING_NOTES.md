@@ -20,6 +20,25 @@ The patch does not change the
 keymap, Space behavior, resolver semantics, tapping terms, BLE connection
 interval, or peripheral latency.
 
+## Temporary scoped timing diagnostic (separate branch)
+
+The `diagnostics/scoped-timing-v0.3.10` branch is NOT a behavior fix or a new
+stable firmware. Its `firmware-scoped-trace` artifact adds a dedicated USB serial
+interface to both halves. All original layout/timing decisions remain unchanged.
+The recorder is off at boot. Only the exact serial `ADVTRACE START` command arms
+it; it freezes after 60 seconds or 2048 records, whichever comes first. `STOP`
+freezes it earlier, and `DUMP` freezes before exporting. No capture-time serial
+output is emitted. General ZMK logging and console are disabled in this build.
+
+Allowlisted data: Backspace/Delete, modifier positions (including NUM), arrows,
+state-machine phases, queue counts, errors and timestamps. No letter/Space
+positions, raw keyboard reports or typed text are retained. Each half has its own
+clock: compare scan-to-send and receive-to-USB locally; do not claim precise radio
+latency by subtracting unaligned clocks. `USB_SUBMIT` marks an attempt; `USB_DONE`
+confirms endpoint completion. The additional USB interface and trace overhead
+can themselves affect scheduling, so a diagnostic run is not identical to the
+uninstrumented firmware. After the investigation restore a non-trace build.
+
 ## Local ZMK USB report-ownership patch
 
 `patches/zmk-usb-hid-stable-buffer.patch` protects each submitted USB report
