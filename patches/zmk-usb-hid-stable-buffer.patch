@@ -10,7 +10,7 @@ diff --git a/app/src/usb_hid.c b/app/src/usb_hid.c
  #include <zephyr/device.h>
  #include <zephyr/init.h>
  
-@@ -31,6 +33,22 @@ static const struct device *hid_dev;
+@@ -31,6 +33,29 @@ static const struct device *hid_dev;
  
  static K_SEM_DEFINE(hid_sem, 1, 1);
  
@@ -30,10 +30,17 @@ diff --git a/app/src/usb_hid.c b/app/src/usb_hid.c
 +#endif
 +} hid_tx_report;
 +
++void zmk_usb_hid_reset_transport(void) {
++    /* A bus reset/disconnect has aborted any old DMA transfer. */
++    k_sem_reset(&hid_sem);
++    k_sem_give(&hid_sem);
++}
++
++
  static void in_ready_cb(const struct device *dev) { k_sem_give(&hid_sem); }
  
  #define HID_GET_REPORT_TYPE_MASK 0xff00
-@@ -191,8 +209,16 @@ static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
+@@ -191,8 +216,16 @@ static int zmk_usb_hid_send_report(const uint8_t *report, size_t len) {
      case USB_DC_UNKNOWN:
          return -ENODEV;
      default:
@@ -52,3 +59,25 @@ diff --git a/app/src/usb_hid.c b/app/src/usb_hid.c
  
          if (err) {
              k_sem_give(&hid_sem);
+diff --git a/app/src/usb.c b/app/src/usb.c
+--- a/app/src/usb.c
++++ b/app/src/usb.c
+@@ -75,6 +75,10 @@ void usb_status_cb(enum usb_dc_status_code status, const uint8_t *params) {
+ #endif
+     usb_status = status;
++    if (status == USB_DC_RESET || status == USB_DC_DISCONNECTED) {
++        /* The controller aborted DMA; do not retain its semaphore forever. */
++        zmk_usb_hid_reset_transport();
++    }
+     if (zmk_usb_get_conn_state() == ZMK_USB_CONN_HID) {
+         is_configured |= usb_status == USB_DC_CONFIGURED;
+     } else {
+         is_configured = false;
+diff --git a/app/include/zmk/usb_hid.h b/app/include/zmk/usb_hid.h
+--- a/app/include/zmk/usb_hid.h
++++ b/app/include/zmk/usb_hid.h
+@@ -14,3 +14,4 @@
+ int zmk_usb_hid_send_mouse_report(void);
+ #endif // IS_ENABLED(CONFIG_ZMK_POINTING)
+ void zmk_usb_hid_set_protocol(uint8_t protocol);
++void zmk_usb_hid_reset_transport(void);

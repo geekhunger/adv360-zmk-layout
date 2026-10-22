@@ -55,7 +55,8 @@ This harness mechanically extracts the actual send function, semaphore and
 transmit-buffer declarations from ZMK's `usb_hid.c`. Its simulated nrfx
 endpoint keeps the supplied pointer until completion instead of copying on
 submit. It checks short taps, distinct modifier/key snapshots, semaphore
-timeouts, failed submissions and all supported report storage sizes.
+timeouts, failed submissions, all supported report storage sizes and
+reconnection after USB reset aborts an in-flight transfer.
 
 The unpatched pinned source fails nine assertions (including the missing
 Backspace down); the patched source passes. This establishes the live-buffer

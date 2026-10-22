@@ -35,6 +35,7 @@ static void complete_transfer(void);
 static int zmk_usb_get_status(void) { return usb_status; }
 static int usb_wakeup_request(void) { return 0; }
 static void k_sem_give(struct k_sem *s) { s->count = 1; }
+static void __attribute__((unused)) k_sem_reset(struct k_sem *s) { s->count = 0; }
 static int k_sem_take(struct k_sem *s, int timeout) {
     (void)timeout;
     if (!s->count && complete_on_wait && inflight) complete_transfer();
@@ -133,6 +134,23 @@ static void test_multiple_report_sizes(void) {
     CHECK(received_count == 4);
     for(int i=0;i<4;i++) { CHECK(received[i][0] == ids[i]); CHECK(received_len[i] == lengths[i]); }
 }
+static void test_aborted_transfer_reconnect(void) {
+    fresh(); complete_on_wait = false;
+    uint8_t report[22] = {1}; report[8] = 0x04;
+    CHECK(zmk_usb_hid_send_report(report, sizeof(report)) == 0);
+    /* USB reset/disconnect aborts DMA without an int-in-ready completion. */
+    inflight = NULL;
+#ifdef ADV360_USB_RESET_HOOK
+    zmk_usb_hid_reset_transport();
+    CHECK(hid_sem.count == 1);
+#endif
+    report[8] = 0;
+    int result = zmk_usb_hid_send_report(report, sizeof(report));
+    CHECK(result == 0);
+    if (result != 0) return;
+    complete_transfer();
+    CHECK(received_count == 1 && received[0][8] == 0);
+}
 static void run(const char *name, void (*test)(void)) {
     unsigned before = failures; test();
     printf("%s %s\n", before == failures ? "PASS" : "FAIL", name);
@@ -143,6 +161,7 @@ int main(void) {
     run("USB timeout cannot overwrite an in-flight report",test_timeout_does_not_reuse_inflight_buffer);
     run("failed USB submission releases its semaphore",test_failed_submit_can_retry);
     run("keyboard/consumer/mouse/boot reports keep their contents",test_multiple_report_sizes);
+    run("aborted USB transfer does not block reconnection",test_aborted_transfer_reconnect);
     printf("%u failed assertions\n", failures);
     return failures ? 1 : 0;
 }

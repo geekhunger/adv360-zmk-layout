@@ -36,14 +36,17 @@ reported on an Advantage360. The fix follows the stable-buffer approach in
 that a semaphore timeout never permits reuse of an in-flight buffer. The
 upstream PR was closed without merging. A local union covers the actual
 keyboard, consumer, optional boot and pointing report types; oversized reports
-are rejected rather than overflowing that storage.
+are rejected rather than overflowing that storage. USB bus reset/disconnect
+releases the semaphore after the controller aborts the old transfer; otherwise
+a missing completion callback could block input after reconnecting the cable.
 
 This changes USB transport ownership only. It adds no new key delay or output
 queue and changes no resolver code, layout binding, 90/170 ms tapping term,
 12 ms pulse, repeat window, Bluetooth control or split notification pacing.
 Both CI variants and the Docker build apply the patch. Native tests compile
 the actual send function with a deferred-read endpoint; the unpatched source
-fails nine assertions, while the patched source preserves the report snapshots.
+fails nine assertions, while the patched source preserves the report snapshots
+and permits reconnection after an aborted transfer.
 This reproduces the buffer defect, not proof that every observed physical
 Backspace delay has the same cause. Real-device comparison remains required.
 
