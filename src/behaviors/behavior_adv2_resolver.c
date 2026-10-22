@@ -1678,6 +1678,11 @@ static void resolve_grace_mod_tap(struct mod_tap_state *state) {
         tap_mod_tap(tap_action, tap_event);
     }
 
+    /* A previously pressed dual-role modifier stays active through this
+     * delayed tap even if that modifier was physically released first.
+     */
+    release_latched_mod_taps(tap_event.position);
+
     for (uint8_t i = 0; i < synthetic_hold_count; i++) {
         release_mod_tap_hold(synthetic_holds[i]);
         reset_mod_tap(synthetic_holds[i]);
@@ -1821,6 +1826,15 @@ static int handle_mod_tap(uint16_t action, bool pressed,
             return ZMK_BEHAVIOR_OPAQUE;
         }
 
+        /*
+         * Dual-role keys follow the same first-key-is-modifier rule as every
+         * other chord target. Commit and latch earlier unresolved keys before
+         * this newest key starts its own tap/hold decision.
+         */
+        if (unresolved_mod_tap_count() > 0) {
+            promote_unresolved_for_live_action(event.position);
+        }
+
         const int64_t now = k_uptime_get();
         mark_mod_tap_chord(state);
         state->physically_pressed = true;
@@ -1864,10 +1878,16 @@ static int handle_mod_tap(uint16_t action, bool pressed,
             state->last_tap_released_at = k_uptime_get();
             reset_mod_tap(state);
 
-            promote_unresolved_for_completed_action(event.position);
+            /*
+             * Keep modifiers latched to this dual-role target until its tap
+             * has actually been emitted.  Releasing the latch first loses a
+             * rolled Alt/Cmd when the modifier came up just before this key.
+             */
+            promote_unresolved_for_live_action(event.position);
             if (!tap_queued) {
                 tap_mod_tap(tap_action, event);
             }
+            release_latched_mod_taps(event.position);
             if (unresolved_mod_tap_count() == 0) {
                 release_deferred_input_events();
             }
@@ -1929,6 +1949,10 @@ static int handle_mod_tap(uint16_t action, bool pressed,
     case MOD_TAP_LATCHED:
     case MOD_TAP_IDLE:
         break;
+    }
+
+    if (state->phase != MOD_TAP_RELEASED_GRACE) {
+        release_latched_mod_taps(event.position);
     }
 
     return ZMK_BEHAVIOR_OPAQUE;
