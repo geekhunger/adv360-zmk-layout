@@ -25,6 +25,8 @@ Coverage includes:
 - A word buffered behind an unresolved modifier must appear before its following
   Backspace, including when that Backspace resolves the earlier modifier.
 - Blocking HID sends from 1 through 30 ms while words and corrections arrive.
+- Message-queue batches without a timer callback between every position: 3,906
+  word/correction combinations plus 2,000 mixed 100-event sequences.
 - Single Backspace durations, modified Backspace repetitions, tap-tap-hold
   repeat, semantic holds, Windows navigation, and representative symbol mappings.
 - Delayed pulse modifier snapshots and 2,000 seeded mixed sequences of 100
@@ -41,6 +43,16 @@ if positions in `config/adv360.keymap` change.
 Use `TEST_FILTER='Alt+Right' TEST_TRACE=1 sh tests/native/run.sh` to inspect a
 case. Set `ADV2_RESOLVER_SOURCE` to another resolver file to compare the same
 tests against a prior version without modifying the working tree.
+
+## Matrix debounce
+
+Run `sh tests/native/run_debounce.sh` against the pinned sibling ZMK checkout.
+It exercises ZMK's actual debounce implementation with synthetic electrical
+levels at 1 ms intervals, before any position event or resolver is involved.
+The 15/15 ms fork defaults are compared with the explicit 5/5 ms configuration
+for short presses, short release gaps and brief noise. These tests verify the
+software filter, not the user's physical switches or actual scan scheduling.
+CI separately checks both built `.config` files for the required 5/5 values.
 
 ## USB report ownership
 

@@ -187,6 +187,38 @@ fork's original connection interval, slave latency, and power behavior.
 ## Intentional implementation boundary
 
 Customizations are the semantic resolver, Bluetooth command selection, queue
-capacities, and the two transport patches documented above. Matrix scanning,
-radio connection parameters, HID descriptor, power management, bonding and
-bootloader behavior are not changed by the USB report-ownership fix.
+capacities, explicit matrix debounce settings, and the two transport patches
+documented above. The scan algorithm, radio connection parameters, HID descriptor,
+power management, bonding and bootloader behavior remain unchanged.
+
+## Matrix debounce compatibility (v0.3.11)
+
+The pinned Kinesis ZMK fork defaults both `ZMK_KSCAN_DEBOUNCE_PRESS_MS` and
+`ZMK_KSCAN_DEBOUNCE_RELEASE_MS` to 15. The actual trace1 build logs, run
+39759034539, confirm 15/15 on both halves. The source Advantage 2 QMK board
+sets `DEBOUNCE 5`; its global deferred algorithm is not identical to ZMK's
+per-key integrator, so matching the number is not a claim of identical scanning.
+
+This firmware explicitly sets both ZMK debounce thresholds to 5 ms. With the
+real pinned debounce implementation and a 1 ms sample period, the old threshold
+rejects short taps and merges successive presses separated by short releases.
+The native regression exercises the implementation itself, including rejection
+of brief noise. Both compiled configurations must contain 5/5 or CI fails.
+Lowering the threshold reduces filtering of contact bounce as well as latency;
+this is deliberately not zero-delay/eager scanning.
+
+The 90 ms modifier and 170 ms semantic hold thresholds, all resolver code,
+the keymap, and transport patches remain byte-for-byte unchanged from v0.3.10.
+The correction affects both physical scanners, so both halves require updating.
+This ordinary build contains no scoped-trace instrumentation or capture interface;
+the temporary v0.3.10-trace1 source, release and local recordings remain archived.
+
+The earlier finite trace showed five debounced Backspace presses and five USB
+deliveries without a growing queue. It did not count raw switch attempts, because
+its first hook runs after debouncing. The test therefore establishes a real
+pre-resolver filtering path, not proof that it explains every reported hitch.
+
+Additional audit found a separate USB timeout/suspend report-loss path and
+overflow-only split queue loss cases. They are not mixed into this narrow change:
+the recorded Backspaces had no such errors. Fault-injection evidence is retained
+locally for subsequent transport work if needed.

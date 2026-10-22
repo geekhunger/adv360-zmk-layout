@@ -48,9 +48,11 @@ jobs:
         run: |
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run.sh
           CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" TEST_REVERSE_LISTENERS=1 sh tests/native/run.sh
+      - name: Matrix debounce regressions
+        run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_debounce.sh
       - name: Apply split and USB transport patches
         run: |
-          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
+          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
           for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
             patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
             git -C zmk apply --check "$patch_file"
@@ -72,6 +74,12 @@ jobs:
         run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
       - name: Adv360 Right Kconfig file
         run: grep -vE '(^#|^$)' build/right/zephyr/.config
+      - name: Verify compiled matrix debounce
+        run: |
+          for half in left right; do
+            grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS=5' build/$half/zephyr/.config
+            grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_RELEASE_MS=5' build/$half/zephyr/.config
+          done
       - name: Rename zmk.uf2
         run: cp build/left/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-left.uf2 && cp build/right/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-right.uf2
       - name: Archive (Adv360)
@@ -120,7 +128,7 @@ jobs:
         run: west update
       - name: Apply split and USB transport patches
         run: |
-          git -C zmk restore --source=HEAD --worktree -- app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
+          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
           for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
             patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
             git -C zmk apply --check "$patch_file"
@@ -142,6 +150,12 @@ jobs:
         run: west build -s zmk/app -d build/right -b adv360_right -- -DZMK_CONFIG="${GITHUB_WORKSPACE}/config" -DZMK_EXTRA_MODULES="${GITHUB_WORKSPACE}"
       - name: Adv360 Right Kconfig file
         run: grep -vE '(^#|^$)' build/right/zephyr/.config
+      - name: Verify compiled matrix debounce
+        run: |
+          for half in left right; do
+            grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS=5' build/$half/zephyr/.config
+            grep -qx 'CONFIG_ZMK_KSCAN_DEBOUNCE_RELEASE_MS=5' build/$half/zephyr/.config
+          done
       - name: Rename zmk.uf2
         run: cp build/left/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-left.uf2 && cp build/right/zephyr/zmk.uf2 ${{ steps.get_info.outputs.file_prefix }}-right.uf2
       - name: Archive (Adv360)
