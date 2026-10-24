@@ -69,7 +69,7 @@
                 &none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none                                      BTA &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &kp MINUS
                 &none &none &adv2 ADV2_W &adv2 ADV2_E &adv2 ADV2_R &adv2 ADV2_F &none   &none &adv2 ADV2_Y &adv2 ADV2_U &adv2 ADV2_I &adv2 ADV2_O &none &none
                 &none &adv2 ADV2_A &adv2 ADV2_S &adv2 ADV2_D &adv2 ADV2_T &adv2 ADV2_G &none   &adv2 ADV2_DUAL_DELETE &none   &none &adv2 ADV2_DUAL_BACKSPACE   &none &adv2 ADV2_H &adv2 ADV2_N &adv2 ADV2_K &adv2 ADV2_L &adv2 ADV2_P &none
-                &none &adv2 ADV2_Z &adv2 ADV2_X &adv2 ADV2_C &adv2 ADV2_V &adv2 ADV2_B   &kp LCTRL &none   &adv2 ADV2_J &adv2 ADV2_M &adv2 ADV2_COMMA &adv2 ADV2_DOT &adv2 ADV2_SLASH &none
+                &none &adv2 ADV2_Z &adv2 ADV2_X &adv2 ADV2_C &adv2 ADV2_V &adv2 ADV2_B   &kp LCTRL &kp RCTRL   &adv2 ADV2_J &adv2 ADV2_M &adv2 ADV2_COMMA &adv2 ADV2_DOT &adv2 ADV2_SLASH &none
                 &none &none &none &none &kp LGUI   &kp SPACE &adv2 ADV2_DUAL_SHIFT_TAB &adv2 ADV2_DUAL_CMD_ESCAPE   &adv2 ADV2_DUAL_CMD_ESCAPE &adv2 ADV2_DUAL_SHIFT_ENTER &mo NUMPAD   &adv2 ADV2_NAV_LEFT &adv2 ADV2_NAV_DOWN &adv2 ADV2_NAV_UP &adv2 ADV2_NAV_RIGHT &none
             >;
         };
@@ -91,7 +91,7 @@
                 &none &none &none &none &none &none &none                                      &trans &none &none &none &none &none &none
                 &none &none &none &none &none &none &none                                      &none &none &none &none &none &none &none
                 &tog WINDOWS &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none   &none &adv2 ADV2_NAV_BACKSPACE   &none &kp N6 &kp N7 &kp N8 &kp N9 &kp N0 &none
-                &none &none &none &none &none &none   &trans &none   &none &none &kp COMMA &kp DOT &none &none
+                &none &none &none &none &none &none   &trans &kp RCTRL   &none &none &kp COMMA &kp DOT &none &none
                 &none &none &none &none &none   &kp C_PP &kp LSHIFT &trans   &none &kp RSHIFT &trans   &num_left &num_down &num_up &num_right &none
             >;
         };

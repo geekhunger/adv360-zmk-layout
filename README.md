@@ -33,6 +33,14 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 - sequenzielle Bluetooth-Steuerung über die originale rechte `Mod`-Taste
 - alle übrigen zusätzlichen Advantage-360-Tasten auf allen Ebenen ohne Funktion
 
+## Rechte Ctrl-Taste
+
+Die kleine mittlere Taste im rechten Daumenblock, direkt über Cmd/Esc und
+spiegelbildlich zur linken Ctrl-Taste, ist jetzt eine eigene rechte Ctrl-Taste
+(Position 53; ursprünglich PgUp). Sie war im ursprünglichen QMK-Layout und im
+bisherigen ZMK-Port unbelegt. Gehalten zusammen mit F/A sendet sie Ctrl+F/Ctrl+A.
+Sie funktioniert unter macOS, Windows und mit gehaltener NUM-Taste.
+
 ## Medien und Beleuchtung
 
 Diese NUM-Belegungen gelten gleichermaßen unter macOS und Windows:

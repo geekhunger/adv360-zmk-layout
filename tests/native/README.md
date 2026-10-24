@@ -15,6 +15,8 @@ It uses ZMK's real keycode definitions and runs with AddressSanitizer and UBSan.
 
 Coverage includes:
 
+- Dedicated right Ctrl+F/A under both OS modes, early release, NUM and both Ctrl keys.
+
 - Modifier release/repress while an arrow, Space, or another dual-role key is down.
 - Early Shift release, opposite Shift+Tab, Alt+Cmd+Esc, and every release ordering
   of an Alt+Cmd+Shift+arrow chord.
@@ -57,7 +59,7 @@ Coverage includes:
 
 `check_num_media.py` runs before native tests. It verifies exactly six changed
 NUM positions against v0.3.11, both Shift selectors and all four morph bindings,
-and unchanged base, Windows and Bluetooth layers. CI also passes the built
+and only the authorized right Ctrl addition to base/NUM. Windows and Bluetooth bindings remain unchanged. CI also passes the built
 `zephyr.dts` and Zephyr's dtlib path to verify resolved phandles and HID usages.
 
 These tests verify software state and ordering. The artificial report delays do

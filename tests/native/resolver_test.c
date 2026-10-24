@@ -147,6 +147,7 @@ static int dispatch_keymap(struct zmk_position_state_changed_event *ev) {
         case 69: emit_code(RSHIFT,ev->data.state);return 0;
         case 38:
             return handle_navigation(ADV2_NAV_BACKSPACE,ev->data.state,event);
+        case 53: break; /* Dedicated right Ctrl stays available in NUM. */
         case 67: break; /* NUM-transparent Cmd/Esc. */
         default: return 0;
         }
@@ -160,6 +161,7 @@ static int dispatch_keymap(struct zmk_position_state_changed_event *ev) {
     case 73: binding.param1=ADV2_NAV_UP; break;
     case 74: binding.param1=ADV2_NAV_RIGHT; break;
     case 52: emit_code(LCTRL, ev->data.state); return 0;
+    case 53: emit_code(RCTRL, ev->data.state); return 0;
     case 64: emit_code(LGUI, ev->data.state); return 0;
     case 65: emit_code(SPACE, ev->data.state); return 0;
     }
@@ -947,6 +949,37 @@ static void test_navigation_input_time_survives_delayed_dispatch(void) {
         settled();CHECK(downs(codes[a],-1)==(held?0u:1u));
     }
 }
+static void test_dedicated_right_control(void) {
+    const int positions[] = {19, 29};
+    const uint32_t codes[] = {F, A};
+    for (int win = 0; win < 2; win++) {
+        for (size_t n = 0; n < ARRAY_SIZE(positions); n++) {
+            for (int early_release = 0; early_release < 2; early_release++) {
+                fresh(); windows_mode = win;
+                key(1000,53,true);
+                CHECK(hid_mods == MOD_RCTL);
+                key(1010,positions[n],true);
+                if (early_release) key(1020,53,false);
+                key(1030,positions[n],false);
+                if (!early_release) key(1040,53,false);
+                settled();
+                CHECK(downs(codes[n],MOD_RCTL)==1);
+                CHECK(downs(codes[n],0)==0);
+            }
+        }
+    }
+    for (int release_num_first = 0; release_num_first < 2; release_num_first++) {
+        fresh();key(1000,70,true);key(1010,53,true);
+        CHECK(hid_mods==MOD_RCTL);
+        key(1020,release_num_first?70:53,false);
+        key(1030,release_num_first?53:70,false);settled();
+    }
+    fresh();key(1000,52,true);key(1010,53,true);
+    key(1020,19,true);key(1030,19,false);
+    key(1040,53,false);key(1050,52,false);settled();
+    CHECK(downs(F,MOD_LCTL|MOD_RCTL)==1);
+}
+
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -956,6 +989,7 @@ static void run(const char *name,void(*test)(void)) {
     }
 }
 int main(void) {
+    run("dedicated right Ctrl F/A in both OS modes, rolled release, NUM and both Ctrl keys",test_dedicated_right_control);
     run("single Backspace duration sweep",test_single_backspaces);
     run("repeated modified Backspaces",test_modified_backspaces);
     run("Alt+Cmd alternating arrows",test_alternating_arrows);

@@ -1,6 +1,6 @@
 on: [push, pull_request, workflow_dispatch]
 
-name: Build (Bluetooth OS memory)
+name: Build (right Ctrl)
 
 concurrency:
   group: firmware-${{ github.ref }}
@@ -114,7 +114,7 @@ jobs:
       - name: Archive (Adv360)
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-profile-os
+          name: firmware-right-control
           path: |
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2

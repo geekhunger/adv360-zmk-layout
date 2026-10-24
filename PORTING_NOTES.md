@@ -126,6 +126,21 @@ Backspace delay has the same cause. Real-device comparison remains required.
   ambiguous host-side Left+Right or Up+Down states.
 - German remains the required host keyboard layout.
 
+## Dedicated right Ctrl (2026-10-24)
+
+The user requested a working right Ctrl after a direct Terminal comparison
+reported left Ctrl+F as 0x06 and right Ctrl+F as plain 0x66. A simultaneous,
+modifier-only HID trace recorded left Control but no right-side Control report.
+The original QMK right thumb middle position is XXXXXXX; the ZMK port faithfully
+kept that position (53, mirrored to left Ctrl at 52) as &none. This requested
+addition maps only that unused key to RCTRL (HID 0x700E4), including NUM; the
+Windows overlay inherits it. Production resolver code and all tap/hold timings
+are unchanged. The existing scope gates normalize these two explicit bindings
+back to &none before comparing all historical input/configuration hashes.
+Native regressions exercise Ctrl+F/A on both OS profiles and early modifier
+release, plus NUM and simultaneous left/right Control. CI checks the actual
+compiled Devicetree binding. Hardware verification remains required after flash.
+
 ## NUM media controls (2026-10-22)
 
 The NUM layer adds previous/next track on Left/Right, volume on Down/Up, and

@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import struct
 import sys
+from keymap_contract import restore_right_control_baseline
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE_HASHES = {
@@ -28,7 +29,7 @@ def digest(text):
 
 
 def check_source():
-    text = (ROOT / "config/adv360.keymap").read_text()
+    text = restore_right_control_baseline((ROOT / "config/adv360.keymap").read_text())
     for layer, expected in BASE_HASHES.items():
         body = re.search(layer + r"_layer\s*\{.*?bindings\s*=\s*<(.*?)>", text, re.S).group(1)
         if layer == "numpad":
@@ -51,7 +52,7 @@ def check_source():
         assert re.findall(r"<&([^>]+)>", actual) == list(bindings)
         assert re.search(r"mods\s*=\s*<\(MOD_LSFT\s*\|\s*MOD_RSFT\)>;", body)
         assert "keep-mods" not in body
-    print("PASS NUM source: only six authorized positions changed; base, Windows and Bluetooth unchanged")
+    print("PASS source: six NUM media positions plus dedicated right Ctrl; Windows and Bluetooth tables unchanged")
 
 
 def check_compiled(filename, module_path):
@@ -74,7 +75,15 @@ def check_compiled(filename, module_path):
     keymap = dt.get_node("/keymap")
     layers = list(keymap.nodes.values())
     assert [node.name for node in layers] == ["macos_layer", "windows_layer", "numpad_layer", "bluetooth_layer"]
+    base = bindings(layers[0])
+    windows = bindings(layers[1])
     num = bindings(layers[2])
+    for entries in (base, num):
+        assert entries[53][0].props["compatible"].to_string() == "zmk,behavior-key-press"
+        assert entries[53][1] == (0x700E4,), "right Ctrl must emit HID Right Control"
+    assert base[52][1] == (0x700E0,), "left Ctrl must remain unchanged"
+    assert windows[53][0].props["compatible"].to_string() == "zmk,behavior-transparent"
+    print("PASS compiled right Ctrl: position 53 sends HID 0x700E4 in macOS/NUM and inherits under Windows")
     assert len(num) == 76
     assert num[65][0].props["compatible"].to_string() == "zmk,behavior-key-press"
     assert num[65][1] == (0xC00CD,)
