@@ -1,6 +1,6 @@
 """Protect all tracked input/board/config sources of the user's working firmware."""
 import hashlib
-from keymap_contract import restore_right_control_baseline
+from keymap_contract import restore_right_control_baseline, undo_authorized_os_trigger_move
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,7 +43,7 @@ BASE_HASHES = {
 }
 
 for name, expected in BASE_HASHES.items():
-    data = (ROOT / name).read_bytes()
+    data = undo_authorized_os_trigger_move(name, (ROOT / name).read_bytes())
     if name == "config/adv360.keymap":
         data = restore_right_control_baseline(data.decode()).encode()
     actual = hashlib.sha256(data).hexdigest()
@@ -56,4 +56,4 @@ assert subscriptions == [
 ]
 assert "zmk_endpoints" not in source, "USB must not create a separate OS choice"
 assert "k_work_reschedule_for_queue(&profile_os_queue" in source
-print(f"PASS input boundary: {len(BASE_HASHES)} original files unchanged apart from right Ctrl position 53; only profile/layer subscriptions")
+print(f"PASS input boundary: {len(BASE_HASHES)} original files unchanged apart from right Ctrl position 53 and OS trigger moved NUM -> MOD; only profile/layer subscriptions")

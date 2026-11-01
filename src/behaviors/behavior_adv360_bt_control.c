@@ -82,6 +82,10 @@ static int bt_control_pressed(struct zmk_behavior_binding *binding,
         zmk_ble_clear_bonds();
         return ZMK_BEHAVIOR_OPAQUE;
 
+    case ADV360_BT_TOGGLE_OS:
+        deactivate_bt_control();
+        return zmk_keymap_layer_toggle(1); // Existing Windows delta; profile memory observes it.
+
     default:
         return -ENOTSUP;
     }

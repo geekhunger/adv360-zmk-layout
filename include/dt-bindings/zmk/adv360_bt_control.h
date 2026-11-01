@@ -9,3 +9,4 @@
 #define ADV360_BT_SELECT_4 5
 #define ADV360_BT_SELECT_5 6
 #define ADV360_BT_CLEAR 7
+#define ADV360_BT_TOGGLE_OS 8

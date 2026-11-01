@@ -30,3 +30,24 @@ def restore_right_control_baseline(text):
     for start, end, original in sorted(replacements, reverse=True):
         text = text[:start] + original + text[end:]
     return text
+
+
+def undo_authorized_os_trigger_move(name, data):
+    changes = []
+    if name == "config/adv360.keymap":
+        changes = [
+            (b"#define BTOS &btctl ADV360_BT_TOGGLE_OS\n", b""),
+            (b"&none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none",
+             b"&tog WINDOWS &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none"),
+            (b"BTOS BTS1 BTS2 BTS3 BTS4 BTS5 BTC", b"BTC BTS1 BTS2 BTS3 BTS4 BTS5 BTC"),
+        ]
+    elif name == "include/dt-bindings/zmk/adv360_bt_control.h":
+        changes = [(b"#define ADV360_BT_TOGGLE_OS 8\n", b"")]
+    elif name == "src/behaviors/behavior_adv360_bt_control.c":
+        changes = [(b"    case ADV360_BT_TOGGLE_OS:\n"
+                    b"        deactivate_bt_control();\n"
+                    b"        return zmk_keymap_layer_toggle(1); // Existing Windows delta; profile memory observes it.\n\n", b"")]
+    for new, old in changes:
+        assert data.count(new) == 1, "Expected isolated OS trigger delta: " + name
+        data = data.replace(new, old)
+    return data

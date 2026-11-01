@@ -1,6 +1,6 @@
 on: [push, pull_request, workflow_dispatch]
 
-name: Build (right Ctrl)
+name: Build (MOD ESC OS profile)
 
 concurrency:
   group: firmware-${{ github.ref }}
@@ -52,6 +52,7 @@ jobs:
       - name: Bluetooth OS profile persistence and unchanged input gates
         run: |
           CC=gcc sh tests/native/run_profile_os.sh
+          CC=gcc sh tests/native/run_bt_control.sh
           python3 tests/native/check_profile_os_scope.py
       - name: Matrix debounce regressions
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_debounce.sh
@@ -114,7 +115,7 @@ jobs:
       - name: Archive (Adv360)
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-right-control
+          name: firmware-mod-os
           path: |
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2

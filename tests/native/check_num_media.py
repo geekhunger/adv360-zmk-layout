@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import struct
 import sys
-from keymap_contract import restore_right_control_baseline
+from keymap_contract import restore_right_control_baseline, undo_authorized_os_trigger_move
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE_HASHES = {
@@ -29,7 +29,8 @@ def digest(text):
 
 
 def check_source():
-    text = restore_right_control_baseline((ROOT / "config/adv360.keymap").read_text())
+    raw = (ROOT / "config/adv360.keymap").read_bytes()
+    text = restore_right_control_baseline(undo_authorized_os_trigger_move("config/adv360.keymap", raw).decode())
     for layer, expected in BASE_HASHES.items():
         body = re.search(layer + r"_layer\s*\{.*?bindings\s*=\s*<(.*?)>", text, re.S).group(1)
         if layer == "numpad":
@@ -52,7 +53,7 @@ def check_source():
         assert re.findall(r"<&([^>]+)>", actual) == list(bindings)
         assert re.search(r"mods\s*=\s*<\(MOD_LSFT\s*\|\s*MOD_RSFT\)>;", body)
         assert "keep-mods" not in body
-    print("PASS source: six NUM media positions plus dedicated right Ctrl; Windows and Bluetooth tables unchanged")
+    print("PASS source: six NUM media positions plus dedicated right Ctrl; plus OS toggle moved from NUM to MOD; all other tables unchanged")
 
 
 def check_compiled(filename, module_path):
@@ -85,6 +86,12 @@ def check_compiled(filename, module_path):
     assert windows[53][0].props["compatible"].to_string() == "zmk,behavior-transparent"
     print("PASS compiled right Ctrl: position 53 sends HID 0x700E4 in macOS/NUM and inherits under Windows")
     assert len(num) == 76
+    assert num[28][0].props["compatible"].to_string() == "zmk,behavior-none"
+    bt = bindings(layers[3])
+    assert len(bt) == 76
+    assert bt[28][0].props["compatible"].to_string() == "geekhunger,behavior-adv360-bt-control"
+    assert bt[28][1] == (8,)
+    print("PASS compiled MOD OS toggle at position 28; NUM no longer toggles OS")
     assert num[65][0].props["compatible"].to_string() == "zmk,behavior-key-press"
     assert num[65][1] == (0xC00CD,)
     assert num[66][1] == (0x700E1,) and num[69][1] == (0x700E5,)

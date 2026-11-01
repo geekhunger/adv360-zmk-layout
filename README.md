@@ -8,7 +8,7 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 ## Eigenschaften
 
 - macOS-Grundebene, sparsames dauerhaftes Windows-Delta und momentane NUM-Ebene
-- Umschalten macOS ↔ Windows durch `NUM halten` + `Esc tippen`
+- Umschalten macOS ↔ Windows durch `MOD`, dann `Esc tippen`
 - Home-Row-Numpad mit absichtlich gesperrten übrigen Positionen
 - Tap/Hold-Symbole und kombinierbare Modifier-Regeln aus dem QMK-Original
 - getrennte macOS-/Windows-Sequenzen für semantisch gleiche Sonderzeichen
@@ -69,6 +69,10 @@ Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
   Profil noch frei, beginnt ZMK anschließend mit dem Pairing.
 - `Mod`, dann `Delete` oder `Backspace`: Bindung des aktuell ausgewählten
   Profils löschen, sodass es neu gekoppelt werden kann.
+- `Mod`, dann die bisherige OS-Umschalttaste (`Esc`, gleiche physische Position
+  wie vorher bei NUM + ESC): macOS ↔ Windows umschalten und für das aktuelle
+  Profil merken. Die MOD-Steuerebene wird sofort verlassen. NUM + ESC ist dort
+  jetzt ohne Funktion; die normalen Cmd/Esc-Daumentasten bleiben unverändert.
 - `Mod`, dann eine andere Taste: Bluetooth-Steuerung verwerfen und die Taste
   normal ausführen.
 - `Mod` zweimal oder 1,5 Sekunden ohne Befehl: Bluetooth-Steuerung verwerfen.
@@ -78,13 +82,13 @@ die obere Zahlenreihe löst keine Bluetooth-Aktion aus.
 
 ### Mac-/Windows-Auswahl je Bluetooth-Profil
 
-`NUM halten` + `Esc tippen` schaltet wie bisher macOS ↔ Windows um. Die Auswahl
+`MOD`, dann `Esc tippen` schaltet macOS ↔ Windows um. Die Auswahl
 wird jetzt dem aktuell ausgewählten Bluetooth-Profil (1–5) zugeordnet. Beim
 Profilwechsel und nach einem Neustart wird dessen Auswahl wiederhergestellt.
 Noch nicht konfigurierte Profile verwenden macOS.
 
 Auf ausdrücklichen Wunsch gilt die Zuordnung **auch beim Tippen über USB**:
-NUM + ESC ändert auch dann das aktuell ausgewählte Bluetooth-Profil. Es gibt
+MOD → ESC ändert auch dann das aktuell ausgewählte Bluetooth-Profil. Es gibt
 keine eigene USB-Auswahl und keine automatische Betriebssystemerkennung.
 Ein Wechsel des Bluetooth-Profils ändert daher auch bei USB-Ausgabe die Ebene.
 
@@ -95,10 +99,11 @@ Nach dem Einstellen deshalb mindestens eine Minute ohne Eingaben eingeschaltet
 lassen, bevor die Tastatur ausgeschaltet wird. Ein sofortiges Ausschalten kann
 die letzte Auswahl verlieren. Profilwechsel und Wiederverbinden schreiben
 selbst nichts in den Flash. Das Löschen einer Bluetooth-Kopplung lässt die
-OS-Auswahl des Slots bestehen; beim neuen Gerät gegebenenfalls NUM + ESC nutzen.
+OS-Auswahl des Slots bestehen; beim neuen Gerät gegebenenfalls MOD → ESC nutzen.
 
 Das getrennte Modul `src/adv360_profile_os.c` beobachtet ausschließlich
-Profil- und Layerwechsel. Keymap, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
+Profil- und Layerwechsel. Nur die OS-Umschaltposition wurde von NUM auf MOD
+verschoben. Rechte Ctrl-Taste, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
 NUM-Medienfunktionen und Entprellung bleiben unverändert. Die vorhandene
 Diagnosefunktion bleibt wie im vorherigen Build standardmäßig inaktiv.
 
@@ -117,7 +122,7 @@ Die davon getrennte Bluetooth-Steuerung liegt in
 Jeder Push startet den Workflow **Build**. Nach erfolgreichem Lauf:
 
 1. Den neuesten erfolgreichen Lauf unter **Actions → Build** öffnen.
-2. Das Artefakt `firmware-profile-os` herunterladen.
+2. Das Artefakt `firmware-mod-os` herunterladen.
 3. Das ZIP entpacken. Es enthält zusammengehörige `left.uf2` und `right.uf2`.
 
 Der Workflow baut beide Hälften auf Basis von Kinesis V3.0 und dessen
