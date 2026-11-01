@@ -97,7 +97,7 @@ bleiben native Win-/Super+Alt-Desktopkombinationen. Die echte Ctrl-Taste bleibt
 Ctrl; Linux hat auch links Ctrl an der entsprechenden Basisposition.
 Linux verwendet deutsches XKB/Compose statt Windows-Alt-Zahlencodes. Die Alt-
 Daumentasten senden unter Linux normales Alt; AltGr wird nur zur Zeichenausgabe
-gezielt erzeugt. Alt+Shift+Links/Rechts markiert wortweise.
+gezielt erzeugt. Alt+Shift+Links/Rechts markiert auf beiden PC-Systemen wortweise.
 
 Layer-Anzeige bei wacher Tastatur: macOS aus, Windows weiß, Linux violett,
 NUM blau, MOD grün. Die höhere NUM-/MOD-Ebene überdeckt die OS-Anzeige.

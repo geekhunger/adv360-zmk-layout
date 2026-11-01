@@ -102,7 +102,7 @@ def undo_linux_extension(name, data):
         end = text.index('static bool resolve_windows_navigation(', start)
         text = text[:start] + text[end:]
         text = text.replace('    if (is_linux() || (is_windows() && has_any(zmk_hid_get_explicit_mods(), MOD_GUI)))\n        return resolve_linux_navigation(action);\n', '')
-        text = text.replace('    const bool alt_mode = has_any(mods, MOD_ALT) &&\n                          !has_any(mods, is_linux() ? MOD_CG : MOD_CSG);', '    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CSG);')
+        text = text.replace('    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CG);', '    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CSG);')
         text, n = re.subn(r'    if \(action == ADV2_PC_SPACE\) \{.*?        return ZMK_BEHAVIOR_OPAQUE;\n    \}\n\n', '', text, flags=re.S)
         assert n == 2
         text, n = re.subn(r'            if \(is_windows\(\) && !is_linux\(\) && keycode == ESCAPE &&.*?            \} else \{\n                tap_code\(keycode\);\n            \}', '            tap_code(keycode);', text, flags=re.S)

@@ -1408,7 +1408,7 @@ static bool resolve_windows_navigation(uint16_t action) {
         return resolve_linux_navigation(action);
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool ctrl_mode = has_any(mods, MOD_CTRL) && !has_any(mods, MOD_AG);
-    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CSG);
+    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CG);
 
     if (!is_windows()) {
         return false;

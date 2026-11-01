@@ -1084,6 +1084,11 @@ static void test_pc_cmd_semantics(void) {
         key(1000,67,true);key(1300,67,false);settled();CHECK(downs(ESCAPE,-1)==0);
         for(size_t i=0;i<output_count;i++)
             if(outputs[i].code==LGUI&&!outputs[i].down)CHECK(outputs[i].mods&MOD_CTRL);
+        // Alt+Shift selects words under both PC modes, including native RAlt on Windows.
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,35,true);key(1005,66,true);key(1010,74,true);
+        key(1020,74,false);key(1030,35,false);key(1040,66,false);settled();
+        CHECK(downs(RIGHT,MOD_LCTL|MOD_LSFT)==1);
         // Real Ctrl remains a real Ctrl shortcut, not Super.
         fresh();windows_mode=os==1;linux_mode=os==2;
         key(1000,53,true);key(1010,49,true);key(1020,49,false);key(1030,53,false);settled();
