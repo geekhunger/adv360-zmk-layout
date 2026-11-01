@@ -5,6 +5,7 @@
 
 static bool layers[5];
 static int active_profile;
+static int test_position = 28;
 static unsigned toggles, clears, selections;
 static uint8_t remembered_modes[5];
 
@@ -33,11 +34,11 @@ int k_work_reschedule(struct k_work_delayable *w, int delay) {
 }
 static int press(uint32_t action) {
     struct zmk_behavior_binding b = {.param1 = action};
-    return bt_control_pressed(&b, (struct zmk_behavior_binding_event){.position = 28});
+    return bt_control_pressed(&b, (struct zmk_behavior_binding_event){.position = test_position});
 }
 static int release(uint32_t action) {
     struct zmk_behavior_binding b = {.param1 = action};
-    return bt_control_released(&b, (struct zmk_behavior_binding_event){.position = 28});
+    return bt_control_released(&b, (struct zmk_behavior_binding_event){.position = test_position});
 }
 static void arm(void) {
     assert(press(ADV360_BT_ARM) == 0 && layers[ADV360_BLUETOOTH]);
@@ -45,7 +46,10 @@ static void arm(void) {
 }
 int main(void) {
     assert(bt_control_init(NULL) == 0);
-    // Sequential MOD -> former OS switch position toggles exactly once.
+    // Sequential MOD -> either Esc thumb or the original alias toggles exactly once.
+    const int positions[] = {28, 67, 68};
+    for (unsigned p = 0; p < sizeof(positions)/sizeof(positions[0]); p++) {
+    test_position = positions[p];
     for (int profile = 0; profile < 5; profile++) {
         zmk_ble_prof_select(profile);
         for (int n = 0; n < 3; n++) {
@@ -58,7 +62,8 @@ int main(void) {
             assert(release(ADV360_BT_TOGGLE_OS) == 0 && toggles == count);
         }
     }
-    assert(toggles == 15);
+    }
+    assert(toggles == 45);
     // Works with NUM additionally held, but does not release NUM itself.
     layers[ADV360_NUMPAD] = true; arm(); press(ADV360_BT_TOGGLE_OS);
     assert(layers[ADV360_NUMPAD] && !layers[ADV360_BLUETOOTH]); release(ADV360_BT_TOGGLE_OS);

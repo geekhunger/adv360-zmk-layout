@@ -118,7 +118,7 @@
                 BTC BTC BTC BTC BTC BTC BTC                                      BTC BTC BTC BTC BTC BTC BTC
                 BTOS BTS1 BTS2 BTS3 BTS4 BTS5 BTC   BTCLR BTC   BTC BTCLR   BTC BTC BTC BTC BTC BTC BTC
                 BTC BTC BTC BTC BTC BTC   BTC BTC   BTC BTC BTC BTC BTC BTC
-                BTC BTC BTC BTC BTC   BTC BTC BTC   BTC BTC &trans   BTC BTC BTC BTC BTC
+                BTC BTC BTC BTC BTC   BTC BTC BTOS   BTOS BTC &trans   BTC BTC BTC BTC BTC
             >;
         };
     };

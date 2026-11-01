@@ -36,6 +36,13 @@ def undo_authorized_os_trigger_move(name, data):
     data = undo_linux_extension(name, data)
     changes = []
     if name == "config/adv360.keymap":
+        text = data.decode()
+        for pos in (68, 67):
+            binding, start, end = layer_entries(text, "bluetooth")[pos]
+            assert binding == "BTOS", "Both Cmd/Esc thumbs must switch OS under MOD"
+            assert layer_entries(text, "macos")[pos][0] == "&adv2 ADV2_DUAL_CMD_ESCAPE"
+            text = text[:start] + "BTC" + text[end:]
+        data = text.encode()
         changes = [
             (b"#define BTOS &btctl ADV360_BT_TOGGLE_OS\n", b""),
             (b"&none &kp N1 &kp N2 &kp N3 &kp N4 &kp N5 &none   &none &none",

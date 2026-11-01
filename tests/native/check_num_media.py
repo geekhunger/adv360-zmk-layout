@@ -95,9 +95,13 @@ def check_compiled(filename, module_path):
     assert num[28][0].props["compatible"].to_string() == "zmk,behavior-none"
     bt = bindings(layers[4])
     assert len(bt) == 76
-    assert bt[28][0].props["compatible"].to_string() == "geekhunger,behavior-adv360-bt-control"
-    assert bt[28][1] == (8,)
-    print("PASS compiled MOD OS toggle at position 28; NUM no longer toggles OS")
+    for pos in (28, 67, 68):
+        assert bt[pos][0].props["compatible"].to_string() == "geekhunger,behavior-adv360-bt-control"
+        assert bt[pos][1] == (8,)
+    for pos in (67, 68):
+        assert base[pos][0].props["compatible"].to_string() == "geekhunger,behavior-adv2-resolver"
+        assert base[pos][1] == (0x408,)
+    print("PASS compiled MOD OS toggle on both Esc thumbs (67/68) and original position 28; base Esc/Cmd unchanged")
     assert num[65][0].props["compatible"].to_string() == "zmk,behavior-key-press"
     assert num[65][1] == (0xC00CD,)
     assert num[66][1] == (0x700E1,) and num[69][1] == (0x700E5,)

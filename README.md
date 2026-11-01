@@ -69,10 +69,12 @@ Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
   Profil noch frei, beginnt ZMK anschließend mit dem Pairing.
 - `Mod`, dann `Delete` oder `Backspace`: Bindung des aktuell ausgewählten
   Profils löschen, sodass es neu gekoppelt werden kann.
-- `Mod`, dann die bisherige OS-Umschalttaste (`Esc`, gleiche physische Position
-  wie vorher bei NUM + ESC): macOS → Windows → Linux → macOS umschalten und für das aktuelle
-  Profil merken. Die MOD-Steuerebene wird sofort verlassen. NUM + ESC ist dort
-  jetzt ohne Funktion; die normalen Cmd/Esc-Daumentasten bleiben unverändert.
+- `Mod` kurz drücken und loslassen, dann innerhalb von 1,5 Sekunden eine der
+  beiden **Cmd/Esc-Daumentasten** tippen: macOS → Windows → Linux → macOS.
+  Der Wechsel wird für das aktive Profil gemerkt und MOD sofort verlassen.
+  Die ursprüngliche äußere linke Position direkt neben A bleibt als Alias
+  verfügbar. Ohne MOD behalten beide Daumentasten ihr normales Esc/Cmd-Verhalten.
+  NUM an der ursprünglichen OS-Umschaltposition bleibt ohne Funktion.
 - `Mod`, dann eine andere Taste: Bluetooth-Steuerung verwerfen und die Taste
   normal ausführen.
 - `Mod` zweimal oder 1,5 Sekunden ohne Befehl: Bluetooth-Steuerung verwerfen.
@@ -82,7 +84,7 @@ die obere Zahlenreihe löst keine Bluetooth-Aktion aus.
 
 ### macOS-/Windows-/Linux-Auswahl je Bluetooth-Profil
 
-`MOD`, dann `Esc tippen` schaltet macOS → Windows → Linux → macOS um. Die Auswahl
+`MOD`, dann eine der beiden `Esc-Daumentasten tippen` schaltet macOS → Windows → Linux → macOS um. Die Auswahl
 wird jetzt dem aktuell ausgewählten Bluetooth-Profil (1–5) zugeordnet. Beim
 Profilwechsel und nach einem Neustart wird dessen Auswahl wiederhergestellt.
 Noch nicht konfigurierte Profile verwenden macOS.
