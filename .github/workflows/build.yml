@@ -1,6 +1,6 @@
 on: [push, pull_request, workflow_dispatch]
 
-name: Build (MOD ESC OS profile)
+name: Build (macOS Windows Linux profiles)
 
 concurrency:
   group: firmware-${{ github.ref }}
@@ -58,8 +58,8 @@ jobs:
         run: CC=gcc ZMK_DIR="${GITHUB_WORKSPACE}/zmk" sh tests/native/run_debounce.sh
       - name: Apply split and USB transport patches
         run: |
-          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
-          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
+          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h app/src/rgb_underglow.c
+          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer zmk-linux-layer-colors; do
             patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
             git -C zmk apply --check "$patch_file"
             git -C zmk apply "$patch_file"
@@ -115,7 +115,7 @@ jobs:
       - name: Archive (Adv360)
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-mod-os
+          name: firmware-linux-os
           path: |
             ${{ steps.get_info.outputs.file_prefix }}-left.uf2
             ${{ steps.get_info.outputs.file_prefix }}-right.uf2
@@ -159,8 +159,8 @@ jobs:
         run: west update
       - name: Apply split and USB transport patches
         run: |
-          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h
-          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer; do
+          git -C zmk restore --source=HEAD --worktree -- app/src/physical_layouts.c app/src/split/bluetooth/central.c app/src/split/bluetooth/service.c app/src/usb_hid.c app/src/usb.c app/include/zmk/usb_hid.h app/src/rgb_underglow.c
+          for patch_name in zmk-split-notify-backpressure zmk-usb-hid-stable-buffer zmk-linux-layer-colors; do
             patch_file="${GITHUB_WORKSPACE}/patches/${patch_name}.patch"
             git -C zmk apply --check "$patch_file"
             git -C zmk apply "$patch_file"

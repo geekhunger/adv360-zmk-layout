@@ -4,11 +4,13 @@
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/modifiers.h>
 #include <dt-bindings/zmk/backlight.h>
+#include <dt-bindings/zmk/adv360_layers.h>
 
-#define MACOS 0
-#define WINDOWS 1
-#define NUMPAD 2
-#define BLUETOOTH 3
+#define MACOS ADV360_MACOS
+#define WINDOWS ADV360_WINDOWS
+#define LINUX ADV360_LINUX
+#define NUMPAD ADV360_NUMPAD
+#define BLUETOOTH ADV360_BLUETOOTH
 
 #define BTC &btctl ADV360_BT_CANCEL
 #define BTA &btctl ADV360_BT_ARM
@@ -77,6 +79,18 @@
 
         windows_layer {
             display-name = "Windows";
+            bindings = <
+                &trans &trans &trans &trans &trans &trans &none                                      &trans &trans &trans &trans &trans &trans &trans
+                &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
+                &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
+                &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
+                &none &trans &trans &trans &kp LALT   &trans &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
+            >;
+        };
+
+        linux_layer {
+            display-name = "Linux";
+            // Same physical delta as Windows; the resolver selects Linux outputs.
             bindings = <
                 &trans &trans &trans &trans &trans &trans &none                                      &trans &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans

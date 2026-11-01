@@ -22,7 +22,7 @@ static uint64_t work_order;
 static struct k_work_delayable *workers[100];
 static size_t worker_count;
 static unsigned errors, failures;
-static bool windows_mode, number_mode;
+static bool windows_mode, linux_mode, number_mode;
 static uint8_t hid_mods;
 static uint8_t masked_mods;
 static bool keymap_num_at_press[128];
@@ -99,7 +99,7 @@ int zmk_behavior_invoke_binding(const struct zmk_behavior_binding *binding,
     abort();
 }
 bool zmk_keymap_layer_active(uint8_t layer) {
-    return layer == WINDOWS_LAYER ? windows_mode : layer == NUMPAD_LAYER && number_mode;
+    return layer == WINDOWS_LAYER ? windows_mode : layer == LINUX_LAYER ? linux_mode : layer == NUMPAD_LAYER && number_mode;
 }
 int raise_zmk_keycode_state_changed_from_encoded(uint32_t encoded, bool down, int64_t time) {
     uint32_t code = encoded & 0x00ffffffu;
@@ -226,7 +226,7 @@ static void batch_key_at(int p, bool down, int64_t input_time) {
 static void batch_key(int p, bool down) { batch_key_at(p,down,now_ms); }
 static void fresh(void) {
     now_ms=1000; work_order=0; worker_count=0; errors=0; output_count=0;
-    windows_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
+    windows_mode=false; linux_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
     masked_mods=0;backlight_inc=0;backlight_dec=0;
     memset(num_data,0,sizeof(num_data));
     for(size_t i=0;i<4;i++)behavior_mod_morph_init(&num_devices[i]);
@@ -980,6 +980,72 @@ static void test_dedicated_right_control(void) {
     CHECK(downs(F,MOD_LCTL|MOD_RCTL)==1);
 }
 
+static void test_linux_symbols(void) {
+    const struct {uint16_t id; bool hold; uint8_t mods; const char *text;} cases[] = {
+        {ADV2_E,true,0,"»"}, {ADV2_I,true,0,"«"}, {ADV2_P,true,0,"π"},
+        {ADV2_M,true,0,"µ"}, {ADV2_DOT,true,0,"…"},
+        {ADV2_R,false,MOD_RALT,"®"}, {ADV2_T,false,MOD_RALT,"™"},
+        {ADV2_C,false,MOD_RALT,"©"}, {ADV2_V,false,MOD_RALT,"‰"},
+        {ADV2_U,false,MOD_RALT,"¨"}, {ADV2_O,false,MOD_RALT,"Ø"},
+        {ADV2_G,false,MOD_RALT,"°"}, {ADV2_SLASH,false,MOD_RALT,"–"},
+        {ADV2_E,false,MOD_RALT,"€"}, {ADV2_D,true,MOD_LSFT,"\\"},
+        {ADV2_D,true,MOD_RALT,"|"}, {ADV2_F,true,0,"{"}, {ADV2_Y,true,0,"}"},
+        {ADV2_G,true,MOD_LSFT,"["}, {ADV2_H,true,MOD_LSFT,"]"},
+        {ADV2_A,true,0,"ä"}, {ADV2_U,true,MOD_LSFT,"Ü"}, {ADV2_O,true,0,"ö"},
+        {ADV2_N,false,MOD_RALT,"~"}, {ADV2_L,false,MOD_RALT,"@"},
+        {ADV2_C,true,0,"`"}, {ADV2_C,true,MOD_LSFT,"´"},
+        {ADV2_B,true,MOD_LSFT,"^"}, {ADV2_A,false,MOD_RALT,"+"},
+        {ADV2_DOT,false,MOD_RALT,"!"}, {ADV2_B,true,0,"<"}, {ADV2_J,true,0,">"},
+        {ADV2_E,true,MOD_LSFT|MOD_RALT,"»"}, {ADV2_P,true,MOD_LSFT|MOD_RALT,"π"},
+    };
+    for(size_t c=0;c<ARRAY_SIZE(cases);c++) {
+        fresh(); linux_mode=true;
+        const uint32_t mod_codes[]={LCTRL,LSHIFT,LALT,LGUI,RCTRL,RSHIFT,RALT,RGUI};
+        for(unsigned b=0;b<8;b++) if(cases[c].mods & (1u<<b)) emit_code(mod_codes[b],true);
+        resolve_semantic(cases[c].id,cases[c].hold,1);
+        CHECK(zmk_hid_get_explicit_mods()==cases[c].mods);
+        for(unsigned b=0;b<8;b++) if(cases[c].mods & (1u<<b)) emit_code(mod_codes[b],false);
+        settled();
+        if(getenv("LINUX_SYMBOL_DUMP")) {
+            printf("{\"expected\":\"");
+            for(const char *p=cases[c].text;*p;p++) {if(*p=='\\'||*p=='\"')putchar('\\');putchar(*p);}
+            printf("\",\"events\":[");
+            bool comma=false;
+            for(size_t i=0;i<output_count;i++) if(outputs[i].down && outputs[i].code<LCTRL) {
+                printf("%s[%u,%u]",comma?",":"",outputs[i].code & 0xffff,outputs[i].mods); comma=true;
+            }
+            puts("]}");
+        }
+    }
+    // Even unusual modifier combinations must never fall into Windows Alt codes.
+    for(unsigned mask=0;mask<256;mask++) for(unsigned hold=0;hold<2;hold++) {
+        for(uint16_t id=ADV2_W;id<=ADV2_SLASH;id++) {
+            fresh(); linux_mode=true;
+            for(unsigned b=0;b<8;b++) if(mask & (1u<<b)) emit_code(LCTRL+b,true);
+            resolve_semantic(id,hold,1);
+            CHECK(zmk_hid_get_explicit_mods()==mask);
+            for(size_t i=0;i<output_count;i++)
+                CHECK(!(outputs[i].down && outputs[i].code>=KP_N1 && outputs[i].code<=KP_N0 && (outputs[i].mods&MOD_LALT)));
+            for(unsigned b=0;b<8;b++) if(mask & (1u<<b)) emit_code(LCTRL+b,false);
+            settled();
+        }
+    }
+}
+
+static void test_linux_navigation(void) {
+    fresh();linux_mode=true;key(1000,35,true);key(1010,38,true);key(1020,35,false);
+    key(1030,38,false);settled();CHECK(downs(BACKSPACE,MOD_LCTL)==1);
+    fresh();linux_mode=true;key(1000,67,true);key(1010,38,true);key(1020,67,false);
+    key(1030,38,false);settled();CHECK(downs(HOME,MOD_LSFT)==1);CHECK(downs(BACKSPACE,0)==1);
+    fresh();linux_mode=true;key(1000,35,true);key(1005,66,true);key(1010,74,true);
+    key(1020,74,false);key(1030,35,false);key(1040,66,false);settled();
+    CHECK(downs(RIGHT,MOD_LCTL|MOD_LSFT)==1);
+    fresh();linux_mode=true;emit_code(LCTRL,true);resolve_semantic(ADV2_H,false,1);CHECK(downs(F20,0)==1);
+    emit_code(LCTRL,false);settled();
+    fresh();linux_mode=true;emit_code(LCTRL,true);resolve_semantic(ADV2_K,true,1);CHECK(downs(F21,0)==1);
+    emit_code(LCTRL,false);settled();
+}
+
 static void run(const char *name,void(*test)(void)) {
     const char *filter=getenv("TEST_FILTER");
     if(filter && !strstr(name,filter))return;
@@ -989,6 +1055,8 @@ static void run(const char *name,void(*test)(void)) {
     }
 }
 int main(void) {
+    run("Linux German symbols and no Windows Alt codes in any modifier combination",test_linux_symbols);
+    run("Linux word selection, correction and desktop actions",test_linux_navigation);
     run("dedicated right Ctrl F/A in both OS modes, rolled release, NUM and both Ctrl keys",test_dedicated_right_control);
     run("single Backspace duration sweep",test_single_backspaces);
     run("repeated modified Backspaces",test_modified_backspaces);

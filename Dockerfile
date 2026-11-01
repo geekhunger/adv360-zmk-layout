@@ -10,7 +10,8 @@ RUN west init -l config
 RUN west update
 COPY patches ./layout_patches/
 RUN git -C zmk apply /app/layout_patches/zmk-split-notify-backpressure.patch \
-    && git -C zmk apply /app/layout_patches/zmk-usb-hid-stable-buffer.patch
+    && git -C zmk apply /app/layout_patches/zmk-usb-hid-stable-buffer.patch \
+    && git -C zmk apply /app/layout_patches/zmk-linux-layer-colors.patch
 # West Zephyr export
 RUN west zephyr-export
 

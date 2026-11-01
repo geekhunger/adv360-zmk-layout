@@ -4,7 +4,8 @@
 #include "../../src/adv360_profile_os.c"
 
 static int active_profile;
-static bool layer_windows;
+static bool layers[5];
+#define layer_windows layers[ADV360_WINDOWS]
 static enum zmk_activity_state activity;
 static unsigned schedules, writes, layer_changes;
 static uint8_t persisted[5];
@@ -28,19 +29,20 @@ void k_work_queue_start(struct k_work_q *q, void *stack, size_t size, int priori
 }
 enum zmk_activity_state zmk_activity_get_state(void) { return activity; }
 int zmk_ble_active_profile_index(void) { return active_profile; }
-bool zmk_keymap_layer_active(uint8_t l) { assert(l == 1); return layer_windows; }
+bool zmk_keymap_layer_active(uint8_t l) { assert(l < 5); return layers[l]; }
 static int layer_event(uint8_t layer, bool state) {
     zmk_event_t ev = {.type = 1, .layer = {layer, state}};
     return profile_os_event(&ev);
 }
-static int set_layer(bool state) {
-    if (layer_windows == state) return 0;
-    layer_windows = state; layer_changes++;
-    return layer_event(1, state);
+static int set_layer(uint8_t layer, bool state) {
+    assert(layer < 5);
+    if (layers[layer] == state) return 0;
+    layers[layer] = state; layer_changes++;
+    return layer_event(layer, state);
 }
-int zmk_keymap_layer_activate(uint8_t l) { assert(l == 1); return set_layer(true); }
-int zmk_keymap_layer_deactivate(uint8_t l) { assert(l == 1); return set_layer(false); }
-static void toggle(void) { assert(set_layer(!layer_windows) == 0); }
+int zmk_keymap_layer_activate(uint8_t l) { return set_layer(l, true); }
+int zmk_keymap_layer_deactivate(uint8_t l) { return set_layer(l, false); }
+static void toggle(void) { assert(adv360_profile_os_cycle() == 0); }
 static void profile_event(int index) {
     zmk_event_t ev = {.type = 2, .profile = {(uint8_t)index}};
     assert(profile_os_event(&ev) == 0);
@@ -62,7 +64,7 @@ static void run_save(void) {
     save_work.work.handler(&save_work.work);
 }
 static void reset(void) {
-    memset(windows, 0, sizeof(windows)); memset(dirty, 0, sizeof(dirty));
+    memset(os_modes, 0, sizeof(os_modes)); memset(layers, 0, sizeof(layers)); memset(dirty, 0, sizeof(dirty));
     memset(failures, 0, sizeof(failures)); memset(persisted, 0, sizeof(persisted));
     ready = restoring = layer_windows = toggle_during_write = false;
     active_profile = storage_error = 0;
@@ -85,24 +87,28 @@ int main(void) {
     // First boot: all slots Mac, no writes on startup/reconnection/NUM changes.
     reset(); assert(profile_os_commit() == 0);
     for (int i = 0; i < 5; i++) { select_profile(i); assert(!layer_windows); }
-    layer_event(2, true); layer_event(2, false); layer_event(3, true);
+    layer_event(3, true); layer_event(3, false); layer_event(4, true);
     assert(!schedules && !writes);
 
     // Exact existing toggle, all five independent slots, USB has no special path.
-    for (int mask = 0; mask < 32; mask++) {
+    for (int mask = 0; mask < 243; mask++) {
         reset(); assert(profile_os_commit() == 0);
         for (int i = 0; i < 5; i++) {
             select_profile(i);
-            if (mask & (1 << i)) toggle();
+            int choice = mask; for (int j = 0; j < i; j++) choice /= 3;
+            for (int n = 0; n < choice % 3; n++) toggle();
         }
         unsigned before = schedules;
         for (int i = 4; i >= 0; i--) {
-            select_profile(i); assert(layer_windows == !!(mask & (1 << i)));
+            select_profile(i); int choice = mask; for (int j = 0; j < i; j++) choice /= 3;
+            assert(current_mode() == choice % 3);
+            assert(!(layers[1] && layers[2]));
             profile_event(i); // Connection notification, not a manual toggle.
         }
         assert(schedules == before);
         if (save_work.scheduled) run_save();
-        for (int i = 0; i < 5; i++) assert(persisted[i] == !!(mask & (1 << i)));
+        int choice = mask;
+        for (int i = 0; i < 5; i++, choice /= 3) assert(persisted[i] == choice % 3);
         assert(!save_work.scheduled);
     }
 
@@ -118,14 +124,14 @@ int main(void) {
     assert(layer_windows && !schedules);
 
     // Restart simulation: durable choices restored, not overwritten by restore.
-    toggle(); toggle(); run_save(); assert(persisted[3] == 1);
+    toggle(); toggle(); toggle(); run_save(); assert(persisted[3] == 1);
     uint8_t saved[5]; memcpy(saved, persisted, sizeof(saved)); reset();
     for (int i = 0; i < 5; i++) {
         char name[8]; snprintf(name, sizeof(name), "p%d", i);
         assert(profile_os_load(name, 1, read_value, &saved[i]) == 0);
     }
     active_profile = 3; assert(profile_os_commit() == 0 && layer_windows && !schedules);
-    toggle(); run_save(); assert(persisted[3] == 0); // Explicit Mac persists too.
+    toggle(); toggle(); run_save(); assert(persisted[3] == 0); // Explicit Mac persists too.
 
     // No storage writes in input callbacks; postpone while actively typing.
     reset(); profile_os_commit(); activity = ZMK_ACTIVITY_ACTIVE; toggle();
@@ -135,26 +141,26 @@ int main(void) {
     // Changes arriving during NVS save remain dirty and get a subsequent save.
     reset(); profile_os_commit(); toggle(); toggle_during_write = true;
     run_save(); assert(dirty[0] && save_work.scheduled && persisted[0] == 1);
-    run_save(); assert(!dirty[0] && persisted[0] == 0 && !save_work.scheduled);
+    run_save(); assert(!dirty[0] && persisted[0] == 2 && !save_work.scheduled);
 
     // Storage failure: bounded retries, RAM choice intact; next toggle retries.
     reset(); profile_os_commit(); toggle(); storage_error = -EIO;
     for (int i = 0; i < SAVE_RETRIES; i++) run_save();
     assert(writes == SAVE_RETRIES && !save_work.scheduled && layer_windows);
-    storage_error = 0; toggle(); run_save(); assert(!dirty[0] && persisted[0] == 0);
+    storage_error = 0; toggle(); run_save(); assert(!dirty[0] && persisted[0] == 2);
 
     // Malformed settings never change a valid entry.
     reset(); assert(profile_os_load("p0", 1, read_value, &one) == 0);
     const char *bad[] = {"", "p", "p-1", "p5", "p9999999999999", "p0/extra", "other"};
     for (unsigned i = 0; i < sizeof(bad)/sizeof(bad[0]); i++)
         assert(profile_os_load(bad[i], 1, read_value, &zero) < 0);
-    uint8_t bad_value = 2;
+    uint8_t bad_value = 3;
     assert(profile_os_load("p0", 1, read_value, &bad_value) == -EINVAL);
     assert(profile_os_load("p0", 0, read_value, &zero) == -EINVAL);
     assert(profile_os_load("p0", 2, read_value, &zero) == -EINVAL);
     assert(profile_os_load("p0", 1, read_short, NULL) == -EINVAL);
     assert(profile_os_load("p0", 1, read_error, NULL) == -EIO);
-    assert(windows[0] == 1);
-    profile_os_commit(); select_profile(255); toggle(); assert(!schedules);
-    puts("PASS OS profiles: 32 combinations, startup/load, reconnect, USB-independent slot ownership, delayed persistence, races, bounded retries, malformed data");
+    assert(os_modes[0] == 1);
+    profile_os_commit(); select_profile(255); assert(adv360_profile_os_cycle() == -EINVAL); assert(!schedules);
+    puts("PASS OS profiles: 243 combinations, startup/load, reconnect, USB-independent slot ownership, delayed persistence, races, bounded retries, malformed data");
 }

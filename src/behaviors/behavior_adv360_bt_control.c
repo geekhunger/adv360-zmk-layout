@@ -17,13 +17,15 @@
 #include <zmk/keymap.h>
 
 #include <dt-bindings/zmk/adv360_bt_control.h>
+#include <dt-bindings/zmk/adv360_layers.h>
+#include <adv360_profile_os.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
-#define NUMPAD_LAYER 2
-#define BLUETOOTH_LAYER 3
+#define NUMPAD_LAYER ADV360_NUMPAD
+#define BLUETOOTH_LAYER ADV360_BLUETOOTH
 #define BT_CONTROL_TIMEOUT_MS 1500
 #define ADV360_MAX_POSITIONS 128
 
@@ -84,7 +86,7 @@ static int bt_control_pressed(struct zmk_behavior_binding *binding,
 
     case ADV360_BT_TOGGLE_OS:
         deactivate_bt_control();
-        return zmk_keymap_layer_toggle(1); // Existing Windows delta; profile memory observes it.
+        return adv360_profile_os_cycle();
 
     default:
         return -ENOTSUP;

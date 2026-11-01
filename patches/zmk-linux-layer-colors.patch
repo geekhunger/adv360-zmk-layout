@@ -1,0 +1,13 @@
+diff --git a/app/src/rgb_underglow.c b/app/src/rgb_underglow.c
+--- a/app/src/rgb_underglow.c
++++ b/app/src/rgb_underglow.c
+@@ -239,7 +239,7 @@
+ #endif
+ 
+ static const struct led_rgb LAYER_COLORS[8] = {
+-    LED_RGB(0x000000), LED_RGB(0xFFFFFF), LED_RGB(0x0000FF), LED_RGB(0x00FF00),
+-    LED_RGB(0xFF0000), LED_RGB(0xFF00FF), LED_RGB(0x00FFFF), LED_RGB(0xFFFF00)};
++    LED_RGB(0x000000), LED_RGB(0xFFFFFF), LED_RGB(0xFF00FF), LED_RGB(0x0000FF),
++    LED_RGB(0x00FF00), LED_RGB(0xFF0000), LED_RGB(0x00FFFF), LED_RGB(0xFFFF00)};
+ 
+ // Formulas chosen so that for the first 8 layers both left and right modules show the same color,

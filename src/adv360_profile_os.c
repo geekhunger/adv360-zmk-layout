@@ -15,13 +15,14 @@
 #include <zmk/events/ble_active_profile_changed.h>
 #include <zmk/events/layer_state_changed.h>
 #include <zmk/keymap.h>
+#include <adv360_profile_os.h>
+#include <dt-bindings/zmk/adv360_layers.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
-#define WINDOWS_LAYER 1
 #define SAVE_RETRIES 3
 
-static uint8_t windows[ZMK_BLE_PROFILE_COUNT];
+static uint8_t os_modes[ZMK_BLE_PROFILE_COUNT];
 static bool dirty[ZMK_BLE_PROFILE_COUNT];
 static uint8_t failures[ZMK_BLE_PROFILE_COUNT];
 static struct k_spinlock state_lock;
@@ -57,7 +58,7 @@ static void save_profiles(struct k_work *work) {
     for (int i = 0; i < ZMK_BLE_PROFILE_COUNT; i++) {
         k_spinlock_key_t key = k_spin_lock(&state_lock);
         bool pending = dirty[i] && failures[i] < SAVE_RETRIES;
-        uint8_t value = windows[i];
+        uint8_t value = os_modes[i];
         k_spin_unlock(&state_lock, key);
         if (!pending) {
             continue;
@@ -68,7 +69,7 @@ static void save_profiles(struct k_work *work) {
         key = k_spin_lock(&state_lock);
         if (err == 0) {
             // A toggle during the write must not be lost.
-            dirty[i] = windows[i] != value;
+            dirty[i] = os_modes[i] != value;
             failures[i] = 0;
         } else {
             failures[i]++;
@@ -84,22 +85,56 @@ static void save_profiles(struct k_work *work) {
     }
 }
 
+static uint8_t current_mode(void) {
+    if (zmk_keymap_layer_active(ADV360_LINUX)) return ADV360_LINUX;
+    return zmk_keymap_layer_active(ADV360_WINDOWS) ? ADV360_WINDOWS : ADV360_MACOS;
+}
+
+static int apply_mode(uint8_t mode) {
+    restoring = true;
+    int err = 0;
+    /* Activate destination before removing the old OS; NUM/MOD stay untouched. */
+    if (mode != ADV360_MACOS) err = zmk_keymap_layer_activate(mode);
+    if (!err && mode != ADV360_WINDOWS) err = zmk_keymap_layer_deactivate(ADV360_WINDOWS);
+    if (!err && mode != ADV360_LINUX) err = zmk_keymap_layer_deactivate(ADV360_LINUX);
+    restoring = false;
+    return err;
+}
+
+static void remember_mode(int index, uint8_t mode) {
+    k_spinlock_key_t key = k_spin_lock(&state_lock);
+    bool changed = os_modes[index] != mode;
+    if (changed) {
+        os_modes[index] = mode;
+        dirty[index] = true;
+        failures[index] = 0;
+    }
+    k_spin_unlock(&state_lock, key);
+    if (changed) schedule_save();
+}
+
+int adv360_profile_os_cycle(void) {
+    int index = zmk_ble_active_profile_index();
+    if (!ready || index < 0 || index >= ZMK_BLE_PROFILE_COUNT) return -EINVAL;
+    uint8_t next = (current_mode() + 1) % 3;
+    int err = apply_mode(next);
+    if (!err) remember_mode(index, next);
+    return err;
+}
+
 static int restore_profile(void) {
     int index = zmk_ble_active_profile_index();
     if (index < 0 || index >= ZMK_BLE_PROFILE_COUNT) {
         return -EINVAL;
     }
     k_spinlock_key_t key = k_spin_lock(&state_lock);
-    bool win = windows[index] != 0;
+    uint8_t mode = os_modes[index];
     k_spin_unlock(&state_lock, key);
-    if (zmk_keymap_layer_active(WINDOWS_LAYER) == win) {
+    if (current_mode() == mode &&
+        !(zmk_keymap_layer_active(ADV360_WINDOWS) && zmk_keymap_layer_active(ADV360_LINUX))) {
         return 0;
     }
-    restoring = true;
-    int err = win ? zmk_keymap_layer_activate(WINDOWS_LAYER)
-                  : zmk_keymap_layer_deactivate(WINDOWS_LAYER);
-    restoring = false;
-    return err;
+    return apply_mode(mode);
 }
 
 static int profile_os_event(const zmk_event_t *eh) {
@@ -111,20 +146,10 @@ static int profile_os_event(const zmk_event_t *eh) {
         restore_profile();
     } else {
         const struct zmk_layer_state_changed *ev = as_zmk_layer_state_changed(eh);
-        if (ev && ev->layer == WINDOWS_LAYER && !restoring) {
+        if (ev && (ev->layer == ADV360_WINDOWS || ev->layer == ADV360_LINUX) && !restoring) {
             int index = zmk_ble_active_profile_index();
             if (index >= 0 && index < ZMK_BLE_PROFILE_COUNT) {
-                k_spinlock_key_t key = k_spin_lock(&state_lock);
-                bool changed = windows[index] != ev->state;
-                if (changed) {
-                    windows[index] = ev->state;
-                    dirty[index] = true;
-                    failures[index] = 0;
-                }
-                k_spin_unlock(&state_lock, key);
-                if (changed) {
-                    schedule_save();
-                }
+                remember_mode(index, current_mode());
             }
         }
     }
@@ -155,11 +180,11 @@ static int profile_os_load(const char *name, size_t len, settings_read_cb read_c
     if (count < 0) {
         return count;
     }
-    if (count != (int)sizeof(value) || value > 1) {
+    if (count != (int)sizeof(value) || value > ADV360_LINUX) {
         return -EINVAL;
     }
     k_spinlock_key_t key = k_spin_lock(&state_lock);
-    windows[index] = value;
+    os_modes[index] = value;
     k_spin_unlock(&state_lock, key);
     return 0;
 }

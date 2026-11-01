@@ -22,12 +22,14 @@
 #include <dt-bindings/zmk/adv2_layout.h>
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/modifiers.h>
+#include <dt-bindings/zmk/adv360_layers.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
-#define WINDOWS_LAYER 1
+#define WINDOWS_LAYER ADV360_WINDOWS
+#define LINUX_LAYER ADV360_LINUX
 #define ADV2_ID_MASK 0xFF
 
 #define MOD_SHIFT (MOD_LSFT | MOD_RSFT)
@@ -43,7 +45,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define MOD_ALL (MOD_CTRL | MOD_SHIFT | MOD_ALT | MOD_GUI)
 
 #define ALT_CODE_DELAY_MS 12
-#define NUMPAD_LAYER 2
+#define NUMPAD_LAYER ADV360_NUMPAD
 #define ADV2_MAX_POSITIONS 128
 #define ADV2_SEMANTIC_COUNT ADV2_SLASH
 #define SEMANTIC_TAPPING_TERM_MS 170
@@ -475,7 +477,9 @@ static void windows_alt_code(uint8_t mask, const uint32_t *digits, size_t count)
         }                                                                                          \
     } while (0)
 
-static bool is_windows(void) { return zmk_keymap_layer_active(WINDOWS_LAYER); }
+static bool is_linux(void) { return zmk_keymap_layer_active(LINUX_LAYER); }
+/* Linux inherits Windows shortcut roles, but overrides OS-specific emitters. */
+static bool is_windows(void) { return zmk_keymap_layer_active(WINDOWS_LAYER) || is_linux(); }
 
 static bool has_any(uint8_t mods, uint8_t mask) { return (mods & mask) != 0; }
 
@@ -528,7 +532,109 @@ static void pass_key(uint16_t id, uint8_t count) {
     }
 }
 
+/* Linux de(basic): native XKB symbols wherever possible. Only pi, per-mille
+ * and spacing diaeresis need Compose (Menu is configured as Multi_key).
+ * No changes to the resolver's event ordering, holds, repeats or timers. */
+static void linux_compose(uint32_t first, uint32_t second) {
+    uint8_t suspended = suspend_modifiers(MOD_ALL);
+    tap_code(K_APP);
+    tap_code(first);
+    tap_code(second);
+    resume_modifiers(suspended);
+}
+
+static bool resolve_linux_semantic(uint16_t id, bool held, uint8_t count) {
+    const uint8_t mods = zmk_hid_get_explicit_mods();
+    const bool shift = has_any(mods, MOD_SHIFT);
+    const bool alt = has_any(mods, MOD_ALT);
+    const bool cg = has_any(mods, MOD_CG);
+    const bool plain_hold = held && !cg;
+    uint32_t code = 0;
+
+    switch (id) {
+    case ADV2_E:
+        if (plain_hold) code = RA(Z); // German Y position -> »
+        else if (alt && !shift && !cg) code = RA(E); // € (not Ctrl+Alt+E)
+        break;
+    case ADV2_R:
+        if (alt && !shift && !cg) code = LS(RA(R)); // ®
+        break;
+    case ADV2_D:
+        if (plain_hold && shift) code = RA(MINUS); // backslash
+        else if (plain_hold && alt) {
+            repeat_tap_without(MOD_SA, RA(NUBS), count); // |
+            return true;
+        }
+        break;
+    case ADV2_T:
+        if (!plain_hold && alt && !shift) code = LS(RA(N8)); // ™
+        break;
+    case ADV2_G:
+        if (!plain_hold && alt && !shift) code = LS(GRAVE); // °
+        break;
+    case ADV2_C:
+        if (plain_hold) {
+            // Space commits grave; acute needs a second dead-acute, not Space.
+            uint8_t suspended = suspend_modifiers(MOD_SA);
+            tap_code(shift ? EQUAL : LS(EQUAL));
+            tap_code(shift ? EQUAL : SPACE);
+            resume_modifiers(suspended);
+            return true;
+        }
+        if (alt && !shift) code = LS(RA(C)); // ©
+        break;
+    case ADV2_V:
+        if (alt && !shift) { linux_compose(LS(N5), O); return true; } // ‰
+        break;
+    case ADV2_B:
+        if (plain_hold && shift) {
+            uint8_t suspended = suspend_modifiers(MOD_SA);
+            tap_code(GRAVE); tap_code(SPACE); // ^, commit German dead key
+            resume_modifiers(suspended);
+            return true;
+        }
+        break;
+    case ADV2_U:
+        if (!plain_hold && alt && !shift) { linux_compose(LS(N2), SPACE); return true; } // ¨
+        break;
+    case ADV2_I:
+        if (plain_hold) code = RA(X); // «
+        break;
+    case ADV2_O:
+        if (!plain_hold && alt && !shift) code = LS(RA(O)); // Ø, source semantic symbol
+        break;
+    case ADV2_H:
+        if (has_any(mods, MOD_CTRL) && !has_any(mods, MOD_SAG)) {
+            tap_without(MOD_ALL, F20); // host adapter: hide/minimize window
+            return true;
+        }
+        break;
+    case ADV2_K:
+        if (held && has_any(mods, MOD_CTRL) && !has_any(mods, MOD_SAG)) {
+            tap_without(MOD_ALL, F21); // host adapter: close window
+            return true;
+        }
+        break;
+    case ADV2_P:
+        if (plain_hold) { linux_compose(P, I); return true; } // π
+        break;
+    case ADV2_M:
+        if (plain_hold) code = RA(M); // µ
+        break;
+    case ADV2_DOT:
+        if (plain_hold) code = RA(DOT); // …
+        break;
+    case ADV2_SLASH:
+        if (alt && !shift) code = RA(FSLH); // –
+        break;
+    }
+    if (!code) return false;
+    tap_without(MOD_SA, code);
+    return true;
+}
+
 static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
+    if (is_linux() && resolve_linux_semantic(id, held, count)) return;
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool shift = has_any(mods, MOD_SHIFT);
     const bool alt = has_any(mods, MOD_ALT);
@@ -1215,7 +1321,8 @@ static struct nav_axis_state *nav_axis(uint16_t action) {
 static bool resolve_windows_navigation(uint16_t action) {
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool ctrl_mode = has_any(mods, MOD_CTRL) && !has_any(mods, MOD_AG);
-    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CSG);
+    const bool alt_mode = has_any(mods, MOD_ALT) &&
+                          !has_any(mods, is_linux() ? MOD_CG : MOD_CSG);
 
     if (!is_windows()) {
         return false;
@@ -1393,7 +1500,7 @@ static uint32_t mod_tap_hold_keycode(uint16_t action) {
     switch (action & ADV2_ID_MASK) {
     case 5:
     case 6:
-        return is_windows() ? RALT : LALT;
+        return is_linux() ? LALT : (is_windows() ? RALT : LALT);
     case 7:
         return LSHIFT;
     case 8:

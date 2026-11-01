@@ -124,3 +124,25 @@ letters from inside the Backspace binding was too late for that press's semantic
 interruption. One or more letters could appear after Backspace, 170 ms later.
 Promotion now takes place in capture, before semantic interruption of the new
 press. Tests cover this order with both Cmd keys, Alt, and both Shift keys.
+
+## Linux OS extension
+
+`run_profile_os.sh` covers all 243 three-mode/five-profile assignments, migration
+of old 0/1 choices, restoration and storage races. `run_bt_control.sh` checks
+the one-shot three-mode cycle with NUM held and unchanged Bluetooth commands.
+The source hash gate still protects the original resolver after normalizing
+only Linux-specific output branches and layer IDs; event/timing machinery is
+unchanged. Linux tests cover every 8-bit modifier combination for symbol output
+and verify that none falls through to a Windows Alt+numpad sequence.
+
+Generate target-checkable reports with:
+
+```sh
+TEST_FILTER=Linux LINUX_SYMBOL_DUMP=1 sh tests/native/run.sh > /tmp/linux-symbols.jsonl
+python3 tests/native/linux_xkb_check.py /tmp/linux-symbols.jsonl
+```
+
+The second command runs on Linux with libxkbcommon, reads no keyboard input and
+injects nothing into the desktop. It decodes the actual resolver HID snapshots
+with German XKB and the documented Compose extension. Physical typing and
+application-specific shortcut handling still require device validation.

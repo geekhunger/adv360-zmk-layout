@@ -29,6 +29,9 @@ def digest(text):
 
 
 def check_source():
+    constants = (ROOT / "include/dt-bindings/zmk/adv360_layers.h").read_text()
+    assert re.findall(r"#define ADV360_(\w+) (\d+)", constants) == [
+        ("MACOS", "0"), ("WINDOWS", "1"), ("LINUX", "2"), ("NUMPAD", "3"), ("BLUETOOTH", "4")]
     raw = (ROOT / "config/adv360.keymap").read_bytes()
     text = restore_right_control_baseline(undo_authorized_os_trigger_move("config/adv360.keymap", raw).decode())
     for layer, expected in BASE_HASHES.items():
@@ -75,10 +78,12 @@ def check_compiled(filename, module_path):
 
     keymap = dt.get_node("/keymap")
     layers = list(keymap.nodes.values())
-    assert [node.name for node in layers] == ["macos_layer", "windows_layer", "numpad_layer", "bluetooth_layer"]
+    assert [node.name for node in layers] == ["macos_layer", "windows_layer", "linux_layer", "numpad_layer", "bluetooth_layer"]
     base = bindings(layers[0])
     windows = bindings(layers[1])
-    num = bindings(layers[2])
+    linux = bindings(layers[2])
+    assert linux == windows, "Linux physical bindings must match Windows"
+    num = bindings(layers[3])
     for entries in (base, num):
         assert entries[53][0].props["compatible"].to_string() == "zmk,behavior-key-press"
         assert entries[53][1] == (0x700E4,), "right Ctrl must emit HID Right Control"
@@ -87,7 +92,7 @@ def check_compiled(filename, module_path):
     print("PASS compiled right Ctrl: position 53 sends HID 0x700E4 in macOS/NUM and inherits under Windows")
     assert len(num) == 76
     assert num[28][0].props["compatible"].to_string() == "zmk,behavior-none"
-    bt = bindings(layers[3])
+    bt = bindings(layers[4])
     assert len(bt) == 76
     assert bt[28][0].props["compatible"].to_string() == "geekhunger,behavior-adv360-bt-control"
     assert bt[28][1] == (8,)

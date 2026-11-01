@@ -7,8 +7,8 @@ muss wie bisher das **deutsche Tastaturlayout** aktiv sein.
 
 ## Eigenschaften
 
-- macOS-Grundebene, sparsames dauerhaftes Windows-Delta und momentane NUM-Ebene
-- Umschalten macOS ↔ Windows durch `MOD`, dann `Esc tippen`
+- macOS-Grundebene, getrennte sparsame Windows- und Linux-Deltas und momentane NUM-Ebene
+- Umschalten macOS → Windows → Linux → macOS durch `MOD`, dann `Esc tippen`
 - Home-Row-Numpad mit absichtlich gesperrten übrigen Positionen
 - Tap/Hold-Symbole und kombinierbare Modifier-Regeln aus dem QMK-Original
 - getrennte macOS-/Windows-Sequenzen für semantisch gleiche Sonderzeichen
@@ -70,7 +70,7 @@ Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
 - `Mod`, dann `Delete` oder `Backspace`: Bindung des aktuell ausgewählten
   Profils löschen, sodass es neu gekoppelt werden kann.
 - `Mod`, dann die bisherige OS-Umschalttaste (`Esc`, gleiche physische Position
-  wie vorher bei NUM + ESC): macOS ↔ Windows umschalten und für das aktuelle
+  wie vorher bei NUM + ESC): macOS → Windows → Linux → macOS umschalten und für das aktuelle
   Profil merken. Die MOD-Steuerebene wird sofort verlassen. NUM + ESC ist dort
   jetzt ohne Funktion; die normalen Cmd/Esc-Daumentasten bleiben unverändert.
 - `Mod`, dann eine andere Taste: Bluetooth-Steuerung verwerfen und die Taste
@@ -80,12 +80,50 @@ Bluetooth-Steuerebene. Sie erzeugt selbst keine Eingabe.
 Die Profilzahlen liegen absichtlich auf den physischen NUM-Positionen `1`–`5`;
 die obere Zahlenreihe löst keine Bluetooth-Aktion aus.
 
-### Mac-/Windows-Auswahl je Bluetooth-Profil
+### macOS-/Windows-/Linux-Auswahl je Bluetooth-Profil
 
-`MOD`, dann `Esc tippen` schaltet macOS ↔ Windows um. Die Auswahl
+`MOD`, dann `Esc tippen` schaltet macOS → Windows → Linux → macOS um. Die Auswahl
 wird jetzt dem aktuell ausgewählten Bluetooth-Profil (1–5) zugeordnet. Beim
 Profilwechsel und nach einem Neustart wird dessen Auswahl wiederhergestellt.
 Noch nicht konfigurierte Profile verwenden macOS.
+
+Windows und Linux sind getrennte Ebenen mit identischen physischen Positionen.
+Linux übernimmt die Windows-Shortcut-Rollen (Ctrl für die Cmd-Daumentasten),
+verwendet aber deutsches XKB/Compose statt Windows-Alt-Zahlencodes. Die Alt-
+Daumentasten senden unter Linux normales Alt; AltGr wird nur zur Zeichenausgabe
+gezielt erzeugt. Alt+Shift+Links/Rechts markiert wortweise.
+
+Layer-Anzeige bei wacher Tastatur: macOS aus, Windows weiß, Linux violett,
+NUM blau, MOD grün. Die höhere NUM-/MOD-Ebene überdeckt die OS-Anzeige.
+Die bestehenden gespeicherten Werte 0=macOS und 1=Windows bleiben gültig;
+Linux ergänzt Wert 2. Bestehende Profilzuordnungen werden nicht zurückgesetzt.
+
+#### Linux-Desktop-Einrichtung
+
+Geprüfte Zielsysteme: Ubuntu 24.04/GNOME/X11 (`nas`) und Omarchy 4.0.1rc1/
+Hyprland (`omarchy`), jeweils mit deutschem Layout `de` ohne Variante.
+`tools/setup_linux_host.py gnome --apply` bzw. `omarchy --apply` richtet als
+Sitzungsbenutzer die erforderlichen Ergänzungen ein. Ohne `--apply` zeigt es
+nur eine Vorschau. Vorhandene Dateien und GSettings werden unter
+`~/.local/state/adv360-linux/<Zeitstempel>/` gesichert.
+
+- Menu wird zusätzlich Compose-Taste; die Firmware nutzt sie intern für
+  `π`, `‰` und `¨`. Die einzige eigene Compose-Sequenz ist Menu, p, i → π.
+- Akzent-Holds schließen tote Tasten ab, damit `^`, `´` und Backtick unmittelbar
+  als Zeichen erscheinen und nicht erst den nächsten Buchstaben verändern.
+- Physisches Cmd+H sendet F20: GNOME minimiert das Fenster; Omarchy verschiebt
+  es ins vorhandene Scratchpad (Super+S zeigt es wieder an).
+- Physisches Cmd+K halten sendet F21: das aktive Fenster schließen.
+- Physisches Alt+Cmd+Esc öffnet GNOME-Systemmonitor bzw. btop auf Omarchy.
+- Omarchys Fcitx-Latinquelle wird an das bereits aktive deutsche XKB-Layout
+  angeglichen. Alle vorhandenen Omarchy-Compose-Erweiterungen bleiben erhalten.
+
+Textprogramme nach der Einrichtung neu öffnen, damit sie die Compose-Tabelle
+neu laden. Programme, die Compose/Dead Keys oder Desktop-Shortcuts selbst
+abfangen (z. B. Remote-Sitzungen, Spiele oder einzelne Terminals), benötigen
+gegebenenfalls eigene Anpassungen. 34 Symbolfälle sind mit den installierten
+XKB-/Compose-Bibliotheken beider Hosts offline geprüft; das ersetzt keinen
+Test in den konkret verwendeten Anwendungen mit der geflashten Tastatur.
 
 Auf ausdrücklichen Wunsch gilt die Zuordnung **auch beim Tippen über USB**:
 MOD → ESC ändert auch dann das aktuell ausgewählte Bluetooth-Profil. Es gibt
@@ -102,8 +140,8 @@ selbst nichts in den Flash. Das Löschen einer Bluetooth-Kopplung lässt die
 OS-Auswahl des Slots bestehen; beim neuen Gerät gegebenenfalls MOD → ESC nutzen.
 
 Das getrennte Modul `src/adv360_profile_os.c` beobachtet ausschließlich
-Profil- und Layerwechsel. Nur die OS-Umschaltposition wurde von NUM auf MOD
-verschoben. Rechte Ctrl-Taste, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
+Profil- und Layerwechsel. Die OS-Auswahl wird über MOD gewechselt. Linux ergänzt ausschließlich
+OS-spezifische Ausgaben und die gemeinsame Ebenennummerierung. Rechte Ctrl-Taste, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
 NUM-Medienfunktionen und Entprellung bleiben unverändert. Die vorhandene
 Diagnosefunktion bleibt wie im vorherigen Build standardmäßig inaktiv.
 
