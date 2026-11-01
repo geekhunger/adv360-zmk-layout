@@ -41,15 +41,20 @@ if a.desktop == "gnome":
         ("org.gnome.desktop.input-sources", "xkb-options", "compose:menu"),
         ("org.gnome.desktop.wm.keybindings", "minimize", "F20"),
         ("org.gnome.desktop.wm.keybindings", "close", "F21"),
+        ("org.gnome.shell.keybindings", "toggle-application-view", "<Super>space"),
     ]:
         old = get(schema, key)
         new = old if extra in old else old + [extra]
         settings.append((schema, key, old, new))
+    schema = "org.gnome.desktop.wm.keybindings"
+    old = get(schema, "switch-input-source")
+    settings.append((schema, "switch-input-source", old,
+                     [key for key in old if key != "<Super>space"]))
     base = "org.gnome.settings-daemon.plugins.media-keys"
     path = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/adv360-system-monitor/"
     schema = base + ".custom-keybinding:" + path
     for key, value in [("name", "Advantage360 process monitor"),
-                       ("command", "gnome-system-monitor"), ("binding", "<Control><Alt>Escape")]:
+                       ("command", "gnome-system-monitor"), ("binding", "<Super><Alt>Escape")]:
         settings.append((schema, key, get(schema, key), value))
     old = get(base, "custom-keybindings")
     settings.append((base, "custom-keybindings", old, old if path in old else old+[path]))
@@ -63,9 +68,10 @@ else:
     lua = home / ".config/hypr/adv360.lua"
     changes[lua] = '''-- Advantage360 Linux companion. Existing Omarchy shortcuts remain available.
 hl.config({ input = { kb_layout = "de", kb_options = %s } })
-o.bind("F20", "Advantage360 hide window (Super+S restores scratchpad)", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
+o.bind("F20", "Advantage360 hide window (Cmd+Alt+H restores scratchpad)", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
+o.bind("SUPER + ALT + H", "Advantage360 restore hidden windows", "hyprctl dispatch togglespecialworkspace scratchpad")
 o.bind("F21", "Advantage360 close window", hl.dsp.window.close())
-o.bind("CTRL + ALT + Escape", "Advantage360 process monitor", { tui = "btop" })
+o.bind("SUPER + ALT + Escape", "Advantage360 process monitor", { tui = "btop" })
 ''' % json.dumps(",".join(filter(None, options)))
     bindings = home / ".config/hypr/bindings.lua"
     old = bindings.read_text()

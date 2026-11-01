@@ -56,4 +56,4 @@ assert subscriptions == [
 ]
 assert "zmk_endpoints" not in source, "USB must not create a separate OS choice"
 assert "k_work_reschedule_for_queue(&profile_os_queue" in source
-print(f"PASS input boundary: {len(BASE_HASHES)} original files protected after normalizing right Ctrl, MOD OS trigger and tested Linux-only output extensions; only profile/layer subscriptions")
+print(f"PASS input boundary: {len(BASE_HASHES)} original files protected after normalizing right Ctrl, MOD OS trigger and tested OS output extensions; only profile/layer subscriptions")

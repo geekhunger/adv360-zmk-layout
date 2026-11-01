@@ -387,3 +387,30 @@ NUM mappings, 5/5 debounce and linked recorder symbols on both halves. The extra
 CDC interface and trace hooks can affect scheduling: a successful build is not
 proof of hardware symptom resolution. This is a diagnostic prerelease, not a
 replacement of the production release until the physical tests are evaluated.
+
+## Three OS profiles and semantic Cmd actions (2026-11-01)
+
+MOD then Escape cycles macOS, Windows and Linux per Bluetooth slot (including
+USB use). Old persisted 0/1 modes remain compatible; Linux is 2. Linux output
+uses German XKB and Compose on the inspected Ubuntu/GNOME and Omarchy hosts.
+
+The Cmd thumb hold remains GUI on every OS. Windows/Linux Cmd text actions
+translate to Ctrl actions, including Shift and OS-specific redo. Cmd navigation
+translates to Home/End, document boundaries and line deletion. Linux Alt is
+ordinary Alt; symbol output emits AltGr only when needed. Cmd+Alt letters stay
+native desktop chords. Cmd+Space opens the host launcher; Cmd+H and held Cmd+K
+retain hide/close semantics using host adapters. Windows Alt+Cmd+Esc invokes
+Task Manager. Host-specific and application-specific shortcut differences are
+not claimed to be universally equivalent (e.g. terminals can require Ctrl+Shift+C).
+
+Ctrl guard events bracket GUI suppression/restoration so the OS does not see a
+bare Win/Super release when translating an action. The same guard handles an
+unused held Cmd release. These are output events only: the existing gesture
+classification, queues, 90/170 ms terms, repeat timing and USB/split fixes are
+unchanged. macOS output bypasses these PC branches entirely. Both halves need
+the new build for the OS/NUM/MOD LED palette; diagnostics remain disarmed.
+
+Validation includes source-boundary guards, 243 profile combinations, native
+resolver tests with sanitizers and alternate listener order, 100,000 additional
+PC mixed events, and 34 symbols decoded using each Linux host's installed XKB/
+Compose libraries. Physical testing and application shortcut checks follow flashing.

@@ -84,7 +84,7 @@
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
-                &none &trans &trans &trans &kp LALT   &trans &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
+                &none &trans &trans &trans &kp LALT   &adv2 ADV2_PC_SPACE &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
             >;
         };
 
@@ -95,8 +95,8 @@
                 &trans &trans &trans &trans &trans &trans &none                                      &trans &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none                                      &none &trans &trans &trans &trans &trans &trans
                 &trans &trans &trans &trans &trans &trans &none   &trans &kp LALT   &trans &trans   &none &trans &trans &trans &trans &trans &trans
-                &trans &trans &trans &trans &trans &trans   &kp LGUI &trans   &trans &trans &trans &trans &trans &trans
-                &none &trans &trans &trans &kp LALT   &trans &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
+                &trans &trans &trans &trans &trans &trans   &kp LCTRL &trans   &trans &trans &trans &trans &trans &trans
+                &none &trans &trans &trans &kp LALT   &adv2 ADV2_PC_SPACE &trans &trans   &trans &trans &trans   &trans &trans &trans &trans &none
             >;
         };
 

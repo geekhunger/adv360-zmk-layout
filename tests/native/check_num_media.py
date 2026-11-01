@@ -82,7 +82,8 @@ def check_compiled(filename, module_path):
     base = bindings(layers[0])
     windows = bindings(layers[1])
     linux = bindings(layers[2])
-    assert linux == windows, "Linux physical bindings must match Windows"
+    assert linux[52][1] == (0x700E0,), "Linux real Ctrl stays Ctrl; Cmd thumbs send Super"
+    assert linux[:52] + linux[53:] == windows[:52] + windows[53:], "Other Linux physical bindings must match Windows"
     num = bindings(layers[3])
     for entries in (base, num):
         assert entries[53][0].props["compatible"].to_string() == "zmk,behavior-key-press"

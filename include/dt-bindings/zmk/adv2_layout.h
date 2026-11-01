@@ -31,6 +31,9 @@
 #define ADV2_DOT 27
 #define ADV2_SLASH 28
 
+/* Direct Space passthrough; only PC Cmd+Space selects the OS launcher. */
+#define ADV2_PC_SPACE 0x800
+
 #define ADV2_NAV_FLAG 0x200
 #define ADV2_NAV_LEFT (ADV2_NAV_FLAG | 1)
 #define ADV2_NAV_UP (ADV2_NAV_FLAG | 2)

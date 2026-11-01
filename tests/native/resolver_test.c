@@ -23,6 +23,7 @@ static struct k_work_delayable *workers[100];
 static size_t worker_count;
 static unsigned errors, failures;
 static bool windows_mode, linux_mode, number_mode;
+static unsigned forced_os;
 static uint8_t hid_mods;
 static uint8_t masked_mods;
 static bool keymap_num_at_press[128];
@@ -163,7 +164,9 @@ static int dispatch_keymap(struct zmk_position_state_changed_event *ev) {
     case 52: emit_code(LCTRL, ev->data.state); return 0;
     case 53: emit_code(RCTRL, ev->data.state); return 0;
     case 64: emit_code(LGUI, ev->data.state); return 0;
-    case 65: emit_code(SPACE, ev->data.state); return 0;
+    case 65:
+        if (is_windows()) { binding.param1=ADV2_PC_SPACE; break; }
+        emit_code(SPACE, ev->data.state); return 0;
     }
     if (!binding.param1) return 0;
     return ev->data.state ? adv2_resolver_pressed(&binding, event) : adv2_resolver_released(&binding, event);
@@ -226,7 +229,7 @@ static void batch_key_at(int p, bool down, int64_t input_time) {
 static void batch_key(int p, bool down) { batch_key_at(p,down,now_ms); }
 static void fresh(void) {
     now_ms=1000; work_order=0; worker_count=0; errors=0; output_count=0;
-    windows_mode=false; linux_mode=false; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
+    windows_mode=forced_os==1; linux_mode=forced_os==2; number_mode=false; hid_mods=0; hid_report_delay_ms=0;
     masked_mods=0;backlight_inc=0;backlight_dec=0;
     memset(num_data,0,sizeof(num_data));
     for(size_t i=0;i<4;i++)behavior_mod_morph_init(&num_devices[i]);
@@ -1040,10 +1043,63 @@ static void test_linux_navigation(void) {
     fresh();linux_mode=true;key(1000,35,true);key(1005,66,true);key(1010,74,true);
     key(1020,74,false);key(1030,35,false);key(1040,66,false);settled();
     CHECK(downs(RIGHT,MOD_LCTL|MOD_LSFT)==1);
-    fresh();linux_mode=true;emit_code(LCTRL,true);resolve_semantic(ADV2_H,false,1);CHECK(downs(F20,0)==1);
-    emit_code(LCTRL,false);settled();
-    fresh();linux_mode=true;emit_code(LCTRL,true);resolve_semantic(ADV2_K,true,1);CHECK(downs(F21,0)==1);
-    emit_code(LCTRL,false);settled();
+    fresh();linux_mode=true;emit_code(LGUI,true);resolve_semantic(ADV2_H,false,1);CHECK(downs(F20,0)==1);
+    emit_code(LGUI,false);settled();
+    fresh();linux_mode=true;emit_code(LGUI,true);resolve_semantic(ADV2_K,true,1);CHECK(downs(F21,0)==1);
+    emit_code(LGUI,false);settled();
+}
+
+static void test_pc_cmd_semantics(void) {
+    const uint16_t ids[]={ADV2_C,ADV2_V,ADV2_X,ADV2_A,ADV2_Y,ADV2_F,ADV2_S,ADV2_W};
+    const uint32_t codes[]={C,V,X,A,Y,F,S,W};
+    for(int os=1;os<=2;os++) {
+        for(size_t c=0;c<ARRAY_SIZE(ids);c++) for(int shift=0;shift<2;shift++) {
+            fresh();windows_mode=os==1;linux_mode=os==2;
+            emit_code(LGUI,true);if(shift)emit_code(LSHIFT,true);
+            size_t start=output_count;
+            resolve_semantic(ids[c],false,2);
+            CHECK(hid_mods==(MOD_LGUI|(shift?MOD_LSFT:0)));
+            for(size_t i=start;i<output_count;i++)
+                if(outputs[i].code==LGUI)CHECK(outputs[i].mods&MOD_CTRL);
+            if(os==1&&shift&&ids[c]==ADV2_Y)CHECK(downs(Z,MOD_LCTL)==1);
+            else CHECK(downs(codes[c],MOD_LCTL|(shift?MOD_LSFT:0))==1);
+            if(shift)emit_code(LSHIFT,false);emit_code(LGUI,false);settled();
+        }
+        // Actual Cmd dual-role, including early release, then direct Space.
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,67,true);key(1010,49,true); // C position
+        key(1020,49,false);key(1030,67,false);settled();CHECK(downs(C,MOD_LCTL)==1);
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,67,true);key(1100,65,true);key(1110,67,false);key(1120,65,false);settled();
+        CHECK(downs(os==1?S:SPACE,MOD_LGUI)==1);
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,65,true);key(1020,65,false);settled();CHECK(downs(SPACE,0)==1);
+        // Native Cmd+Alt desktop chords must not be consumed by symbol output.
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        emit_code(LGUI,true);emit_code(LALT,true);
+        resolve_semantic(ADV2_H,false,1);CHECK(downs(H,MOD_LGUI|MOD_LALT)==1);
+        emit_code(LALT,false);emit_code(LGUI,false);settled();
+        // An unused held Cmd must not create an unmodified Win/Super release.
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,67,true);key(1300,67,false);settled();CHECK(downs(ESCAPE,-1)==0);
+        for(size_t i=0;i<output_count;i++)
+            if(outputs[i].code==LGUI&&!outputs[i].down)CHECK(outputs[i].mods&MOD_CTRL);
+        // Real Ctrl remains a real Ctrl shortcut, not Super.
+        fresh();windows_mode=os==1;linux_mode=os==2;
+        key(1000,53,true);key(1010,49,true);key(1020,49,false);key(1030,53,false);settled();
+        CHECK(downs(C,MOD_RCTL)==1);
+    }
+}
+
+static void test_pc_typing_regressions(void) {
+    for (forced_os=1;forced_os<=2;forced_os++) {
+        test_plain_rolls_and_spaces();
+        test_double_letter_space();
+        test_word_then_backspaces();
+        test_hold_and_repeat();
+        test_long_session_without_reset();
+    }
+    forced_os=0;
 }
 
 static void run(const char *name,void(*test)(void)) {
@@ -1055,6 +1111,8 @@ static void run(const char *name,void(*test)(void)) {
     }
 }
 int main(void) {
+    run("PC typing, double letters, Space, corrections and 100000 mixed events",test_pc_typing_regressions);
+    run("PC Cmd semantic shortcuts, guarded Super transitions, launcher and real Ctrl",test_pc_cmd_semantics);
     run("Linux German symbols and no Windows Alt codes in any modifier combination",test_linux_symbols);
     run("Linux word selection, correction and desktop actions",test_linux_navigation);
     run("dedicated right Ctrl F/A in both OS modes, rolled release, NUM and both Ctrl keys",test_dedicated_right_control);

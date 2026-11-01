@@ -59,7 +59,8 @@ Coverage includes:
 
 `check_num_media.py` runs before native tests. It verifies exactly six changed
 NUM positions against v0.3.11, both Shift selectors and all four morph bindings,
-and only the authorized right Ctrl addition to base/NUM. Windows and Bluetooth bindings remain unchanged. CI also passes the built
+and only the authorized right Ctrl addition to base/NUM. Bluetooth bindings remain unchanged; Windows Space receives a direct passthrough
+with a Cmd-only launcher action, and Linux adds its Ctrl position. CI also passes the built
 `zephyr.dts` and Zephyr's dtlib path to verify resolved phandles and HID usages.
 
 These tests verify software state and ordering. The artificial report delays do
@@ -131,7 +132,7 @@ press. Tests cover this order with both Cmd keys, Alt, and both Shift keys.
 of old 0/1 choices, restoration and storage races. `run_bt_control.sh` checks
 the one-shot three-mode cycle with NUM held and unchanged Bluetooth commands.
 The source hash gate still protects the original resolver after normalizing
-only Linux-specific output branches and layer IDs; event/timing machinery is
+only OS-specific output branches, PC Cmd actions and layer IDs; event/timing machinery is
 unchanged. Linux tests cover every 8-bit modifier combination for symbol output
 and verify that none falls through to a Windows Alt+numpad sequence.
 
@@ -146,3 +147,9 @@ The second command runs on Linux with libxkbcommon, reads no keyboard input and
 injects nothing into the desktop. It decodes the actual resolver HID snapshots
 with German XKB and the documented Compose extension. Physical typing and
 application-specific shortcut handling still require device validation.
+
+PC Cmd tests check Ctrl-based text actions, Shift/redo, native Cmd+Alt chords,
+Ctrl-guarded Super transitions, the launcher and unused Cmd holds. The existing
+plain typing, double-letter/Space, correction and repeat tests also run under
+both PC modes, including 100,000 mixed events without resolver resets. Host
+Start/Overview behavior must still be checked with the physical keyboard.

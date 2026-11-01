@@ -88,8 +88,14 @@ Profilwechsel und nach einem Neustart wird dessen Auswahl wiederhergestellt.
 Noch nicht konfigurierte Profile verwenden macOS.
 
 Windows und Linux sind getrennte Ebenen mit identischen physischen Positionen.
-Linux übernimmt die Windows-Shortcut-Rollen (Ctrl für die Cmd-Daumentasten),
-verwendet aber deutsches XKB/Compose statt Windows-Alt-Zahlencodes. Die Alt-
+Die Cmd-Daumentasten sind unter Linux Super und unter Windows Win. Bei
+Textaktionen übersetzt die Firmware die Geste: Cmd+C/V/X/A/S/F usw. senden
+Ctrl+C/V/X/A/S/F; Shift bleibt erhalten. Cmd+Shift+Z erzeugt unter Windows
+Ctrl+Y und unter Linux Ctrl+Shift+Z. Cmd+Pfeile sowie Cmd+Backspace/Delete
+übersetzen sich in die passenden Zeilen-/Dokumentaktionen. Cmd+Alt+Buchstaben
+bleiben native Win-/Super+Alt-Desktopkombinationen. Die echte Ctrl-Taste bleibt
+Ctrl; Linux hat auch links Ctrl an der entsprechenden Basisposition.
+Linux verwendet deutsches XKB/Compose statt Windows-Alt-Zahlencodes. Die Alt-
 Daumentasten senden unter Linux normales Alt; AltGr wird nur zur Zeichenausgabe
 gezielt erzeugt. Alt+Shift+Links/Rechts markiert wortweise.
 
@@ -112,8 +118,11 @@ nur eine Vorschau. Vorhandene Dateien und GSettings werden unter
 - Akzent-Holds schließen tote Tasten ab, damit `^`, `´` und Backtick unmittelbar
   als Zeichen erscheinen und nicht erst den nächsten Buchstaben verändern.
 - Physisches Cmd+H sendet F20: GNOME minimiert das Fenster; Omarchy verschiebt
-  es ins vorhandene Scratchpad (Super+S zeigt es wieder an).
+  es ins vorhandene Scratchpad (Cmd+Alt+H zeigt es wieder an).
 - Physisches Cmd+K halten sendet F21: das aktive Fenster schließen.
+- Cmd+Space öffnet unter GNOME die Anwendungsübersicht, unter Omarchy den
+  vorhandenen Launcher und unter Windows die Suche. Normales Space und
+  NUM+Space bleiben unverändert.
 - Physisches Alt+Cmd+Esc öffnet GNOME-Systemmonitor bzw. btop auf Omarchy.
 - Omarchys Fcitx-Latinquelle wird an das bereits aktive deutsche XKB-Layout
   angeglichen. Alle vorhandenen Omarchy-Compose-Erweiterungen bleiben erhalten.
@@ -141,8 +150,11 @@ OS-Auswahl des Slots bestehen; beim neuen Gerät gegebenenfalls MOD → ESC nutz
 
 Das getrennte Modul `src/adv360_profile_os.c` beobachtet ausschließlich
 Profil- und Layerwechsel. Die OS-Auswahl wird über MOD gewechselt. Linux ergänzt ausschließlich
-OS-spezifische Ausgaben und die gemeinsame Ebenennummerierung. Rechte Ctrl-Taste, Resolver, Tap/Hold-Zeiten, USB-/Split-Patches,
-NUM-Medienfunktionen und Entprellung bleiben unverändert. Die vorhandene
+OS-spezifische Ausgaben und die gemeinsame Ebenennummerierung; Windows ergänzt
+die Cmd-Aktionsübersetzung. Modifier-Entscheidungen, Tap/Hold-Zeiten,
+Ereigniswarteschlangen, USB-/Split-Patches, NUM-Medienfunktionen und Entprellung
+bleiben unverändert. Kurze Ctrl-Schutzereignisse um die Win-/Super-Übersetzung
+verhindern, dass ein Modifierwechsel als alleiniger Start-/Overview-Aufruf gilt. Die vorhandene
 Diagnosefunktion bleibt wie im vorherigen Build standardmäßig inaktiv.
 
 Die vollständige Portierungsvereinbarung und jede technische Abweichung stehen

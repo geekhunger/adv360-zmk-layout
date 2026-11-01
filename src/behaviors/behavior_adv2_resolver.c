@@ -67,6 +67,7 @@ enum nav_state {
 };
 
 static uint8_t nav_states[ADV2_MAX_POSITIONS];
+static bool pc_space_shortcut[ADV2_MAX_POSITIONS];
 
 struct nav_axis_state {
     int32_t position;
@@ -483,6 +484,33 @@ static bool is_windows(void) { return zmk_keymap_layer_active(WINDOWS_LAYER) || 
 
 static bool has_any(uint8_t mods, uint8_t mask) { return (mods & mask) != 0; }
 
+/* Action-level OS translation. Bracket Super/Win suspension with Ctrl so
+ * releasing/reasserting it cannot look like a bare Start/Overview gesture.
+ * This does not alter the mod-tap state machine or any tapping term. */
+static void pc_sequence(uint8_t mask, const uint32_t *codes, size_t count) {
+    const uint8_t before = zmk_hid_get_explicit_mods();
+    uint8_t guard = 0;
+    if ((mask & MOD_GUI) && (before & MOD_GUI)) {
+        if (!(before & MOD_RCTL)) guard = MOD_RCTL;
+        else if (!(before & MOD_LCTL)) guard = MOD_LCTL;
+    }
+    uint32_t guard_key = guard == MOD_RCTL ? RCTRL : LCTRL;
+    if (guard) emit_code(guard_key, true);
+    // GUI must be released while the guard is still down.
+    uint8_t gui = suspend_modifiers(mask & MOD_GUI);
+    uint8_t rest = suspend_modifiers((mask & ~MOD_GUI) | guard);
+    for (size_t i = 0; i < count; i++) tap_code(codes[i]);
+    if (guard) emit_code(guard_key, true);
+    resume_modifiers(rest & ~guard);
+    resume_modifiers(gui);
+    if (guard) emit_code(guard_key, false);
+}
+
+#define PC_SEQUENCE(mask, ...) do { \
+    const uint32_t codes[] = {__VA_ARGS__}; \
+    pc_sequence((mask), codes, ARRAY_SIZE(codes)); \
+} while (0)
+
 static uint32_t base_keycode(uint16_t id) {
     switch (id) {
     case ADV2_W: return W;
@@ -522,7 +550,7 @@ static void pass_key(uint16_t id, uint8_t count) {
     const uint8_t mods = zmk_hid_get_explicit_mods();
 
     /* QMK key_pass(): OS command chords are issued once, text taps keep the dance count. */
-    if ((!is_windows() && has_any(mods, MOD_GUI)) ||
+    if (((!is_windows() || is_linux()) && has_any(mods, MOD_GUI)) ||
         (is_windows() && has_any(mods, MOD_CTRL))) {
         count = 1;
     }
@@ -536,11 +564,7 @@ static void pass_key(uint16_t id, uint8_t count) {
  * and spacing diaeresis need Compose (Menu is configured as Multi_key).
  * No changes to the resolver's event ordering, holds, repeats or timers. */
 static void linux_compose(uint32_t first, uint32_t second) {
-    uint8_t suspended = suspend_modifiers(MOD_ALL);
-    tap_code(K_APP);
-    tap_code(first);
-    tap_code(second);
-    resume_modifiers(suspended);
+    PC_SEQUENCE(MOD_ALL, K_APP, first, second);
 }
 
 static bool resolve_linux_semantic(uint16_t id, bool held, uint8_t count) {
@@ -604,14 +628,22 @@ static bool resolve_linux_semantic(uint16_t id, bool held, uint8_t count) {
         if (!plain_hold && alt && !shift) code = LS(RA(O)); // Ø, source semantic symbol
         break;
     case ADV2_H:
+        if (has_any(mods, MOD_GUI) && !has_any(mods, MOD_CTRL | MOD_SA)) {
+            PC_SEQUENCE(MOD_ALL, F20); // physical Cmd+H: hide/minimize
+            return true;
+        }
         if (has_any(mods, MOD_CTRL) && !has_any(mods, MOD_SAG)) {
-            tap_without(MOD_ALL, F20); // host adapter: hide/minimize window
+            pass_key(id, count); // real Ctrl+H is not the Windows hide shortcut
             return true;
         }
         break;
     case ADV2_K:
+        if (held && has_any(mods, MOD_GUI) && !has_any(mods, MOD_CTRL | MOD_SA)) {
+            PC_SEQUENCE(MOD_ALL, F21); // physical Cmd+K hold: close window
+            return true;
+        }
         if (held && has_any(mods, MOD_CTRL) && !has_any(mods, MOD_SAG)) {
-            tap_without(MOD_ALL, F21); // host adapter: close window
+            repeat_tap_without(0, Q, count);
             return true;
         }
         break;
@@ -634,6 +666,36 @@ static bool resolve_linux_semantic(uint16_t id, bool held, uint8_t count) {
 }
 
 static void resolve_semantic(uint16_t id, bool held, uint8_t count) {
+    /* Native Cmd+Alt desktop shortcuts keep Win/Super and Alt together. */
+    if (is_windows() && has_any(zmk_hid_get_explicit_mods(), MOD_GUI) &&
+        has_any(zmk_hid_get_explicit_mods(), MOD_ALT)) {
+        uint32_t code = base_keycode(id);
+        if (code) { tap_code(code); return; }
+    }
+    /* Familiar Cmd text commands on Windows/Linux; other combinations retain
+     * native Win/Super (for example Cmd+Alt desktop shortcuts). */
+    if (is_windows() && has_any(zmk_hid_get_explicit_mods(), MOD_GUI) &&
+        !has_any(zmk_hid_get_explicit_mods(), MOD_ALT)) {
+        const uint8_t pc_mods = zmk_hid_get_explicit_mods();
+        if (id == ADV2_H && !has_any(pc_mods, MOD_CTRL | MOD_SHIFT)) {
+            PC_SEQUENCE(MOD_ALL, is_linux() ? F20 : LG(DOWN_ARROW));
+            return;
+        }
+        if (id == ADV2_K && held && !has_any(pc_mods, MOD_CTRL | MOD_SHIFT)) {
+            PC_SEQUENCE(MOD_ALL, is_linux() ? F21 : LA(F4));
+            return;
+        }
+        // Physical German Z uses USB Y; Windows redo is German Ctrl+Y (USB Z).
+        if (!is_linux() && id == ADV2_Y && has_any(pc_mods, MOD_SHIFT)) {
+            PC_SEQUENCE(MOD_GUI | MOD_SHIFT, LC(Z));
+            return;
+        }
+        uint32_t code = base_keycode(id);
+        if (code) {
+            PC_SEQUENCE(MOD_GUI, LC(code));
+            return;
+        }
+    }
     if (is_linux() && resolve_linux_semantic(id, held, count)) return;
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool shift = has_any(mods, MOD_SHIFT);
@@ -1318,11 +1380,35 @@ static struct nav_axis_state *nav_axis(uint16_t action) {
     }
 }
 
+static bool resolve_linux_navigation(uint16_t action) {
+    const uint8_t mods = zmk_hid_get_explicit_mods();
+    if (has_any(mods, MOD_GUI) && !has_any(mods, MOD_CTRL | MOD_ALT)) {
+        switch (action) {
+        case ADV2_NAV_LEFT: PC_SEQUENCE(MOD_GUI, HOME); return true;
+        case ADV2_NAV_UP: PC_SEQUENCE(MOD_GUI, LC(HOME)); return true;
+        case ADV2_NAV_RIGHT: PC_SEQUENCE(MOD_GUI, END); return true;
+        case ADV2_NAV_DOWN: PC_SEQUENCE(MOD_GUI, LC(END)); return true;
+        case ADV2_NAV_DELETE: PC_SEQUENCE(MOD_GUI | MOD_SHIFT, LS(END), DELETE); return true;
+        case ADV2_NAV_BACKSPACE: PC_SEQUENCE(MOD_GUI | MOD_SHIFT, LS(HOME), BACKSPACE); return true;
+        }
+    }
+    if (has_any(mods, MOD_ALT) && !has_any(mods, MOD_CG)) {
+        switch (action) {
+        case ADV2_NAV_LEFT: tap_without(MOD_ALT, LC(LEFT)); return true;
+        case ADV2_NAV_RIGHT: tap_without(MOD_ALT, LC(RIGHT)); return true;
+        case ADV2_NAV_DELETE: tap_without(MOD_ALT, LC(DELETE)); return true;
+        case ADV2_NAV_BACKSPACE: tap_without(MOD_ALT, LC(BACKSPACE)); return true;
+        }
+    }
+    return false;
+}
+
 static bool resolve_windows_navigation(uint16_t action) {
+    if (is_linux() || (is_windows() && has_any(zmk_hid_get_explicit_mods(), MOD_GUI)))
+        return resolve_linux_navigation(action);
     const uint8_t mods = zmk_hid_get_explicit_mods();
     const bool ctrl_mode = has_any(mods, MOD_CTRL) && !has_any(mods, MOD_AG);
-    const bool alt_mode = has_any(mods, MOD_ALT) &&
-                          !has_any(mods, is_linux() ? MOD_CG : MOD_CSG);
+    const bool alt_mode = has_any(mods, MOD_ALT) && !has_any(mods, MOD_CSG);
 
     if (!is_windows()) {
         return false;
@@ -1504,7 +1590,7 @@ static uint32_t mod_tap_hold_keycode(uint16_t action) {
     case 7:
         return LSHIFT;
     case 8:
-        return is_windows() ? LCTRL : LGUI;
+        return LGUI;
     case 9:
         return RSHIFT;
     default:
@@ -1623,7 +1709,11 @@ static void release_mod_tap_hold(struct mod_tap_state *state) {
     state->hold_active = false;
     uint8_t *counter = mod_tap_hold_counter(state->hold_keycode);
     if (counter != NULL && *counter > 0 && --(*counter) == 0) {
+        const bool pc_gui_guard = is_windows() && state->hold_keycode == LGUI &&
+                                  !has_any(zmk_hid_get_explicit_mods(), MOD_CTRL);
+        if (pc_gui_guard) emit_code(RCTRL, true);
         emit_code(state->hold_keycode, false);
+        if (pc_gui_guard) emit_code(RCTRL, false);
     }
 }
 
@@ -1840,7 +1930,13 @@ static void tap_mod_tap(uint16_t action, struct zmk_behavior_binding_event event
     } else {
         uint32_t keycode = mod_tap_tap_keycode(action);
         if (keycode != 0) {
-            tap_code(keycode);
+            if (is_windows() && !is_linux() && keycode == ESCAPE &&
+                has_any(zmk_hid_get_explicit_mods(), MOD_GUI) &&
+                has_any(zmk_hid_get_explicit_mods(), MOD_ALT)) {
+                PC_SEQUENCE(MOD_ALL, LC(LS(ESCAPE))); // Windows task manager
+            } else {
+                tap_code(keycode);
+            }
         }
     }
     release_temporary_modifiers(temporary_mods);
@@ -2272,6 +2368,17 @@ static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
                                  struct zmk_behavior_binding_event event) {
     const uint16_t action = binding->param1;
 
+    if (action == ADV2_PC_SPACE) {
+        if (event.position >= ADV2_MAX_POSITIONS) return -EINVAL;
+        pc_space_shortcut[event.position] = is_windows() && has_any(zmk_hid_get_explicit_mods(), MOD_GUI);
+        if (pc_space_shortcut[event.position]) {
+            PC_SEQUENCE(MOD_GUI, is_linux() ? LG(SPACE) : LG(S));
+        } else {
+            emit_code(SPACE, true);
+        }
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
+
     if (action & ADV2_DUAL_FLAG) {
         return handle_mod_tap(action, true, event);
     }
@@ -2286,6 +2393,13 @@ static int adv2_resolver_pressed(struct zmk_behavior_binding *binding,
 static int adv2_resolver_released(struct zmk_behavior_binding *binding,
                                   struct zmk_behavior_binding_event event) {
     const uint16_t action = binding->param1;
+
+    if (action == ADV2_PC_SPACE) {
+        if (event.position >= ADV2_MAX_POSITIONS) return -EINVAL;
+        if (!pc_space_shortcut[event.position]) emit_code(SPACE, false);
+        pc_space_shortcut[event.position] = false;
+        return ZMK_BEHAVIOR_OPAQUE;
+    }
 
     if (action & ADV2_DUAL_FLAG) {
         return handle_mod_tap(action, false, event);
@@ -2307,6 +2421,7 @@ static const struct behavior_driver_api adv2_resolver_driver_api = {
 };
 
 static int adv2_resolver_init(const struct device *dev) {
+    for (size_t i = 0; i < ARRAY_SIZE(pc_space_shortcut); i++) pc_space_shortcut[i] = false;
     static const uint16_t actions[ADV2_MOD_TAP_COUNT] = {
         ADV2_DUAL_DELETE, ADV2_DUAL_BACKSPACE, ADV2_DUAL_SHIFT_TAB,
         ADV2_DUAL_CMD_ESCAPE, ADV2_DUAL_CMD_ESCAPE, ADV2_DUAL_SHIFT_ENTER,
