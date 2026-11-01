@@ -711,8 +711,8 @@ static void test_nested_replay_fifo_contract(void) {
 static void test_num_media_both_os(void) {
     const uint32_t plain[]={C_PREV,C_VOL_DN,C_VOL_UP,C_NEXT};
     const uint32_t bright[]={0,C_BRI_DN,C_BRI_UP,0};
-    for(int win=0;win<2;win++)for(int shift=0;shift<4;shift++)for(int arrow=0;arrow<4;arrow++) {
-        fresh();windows_mode=win;
+    for(int win=0;win<3;win++)for(int shift=0;shift<4;shift++)for(int arrow=0;arrow<4;arrow++) {
+        fresh();windows_mode=win==1;linux_mode=win==2;
         key(1000,70,true);
         if(shift&1)key(1010,66,true);
         if(shift&2)key(1011,69,true);
@@ -728,8 +728,8 @@ static void test_num_media_both_os(void) {
         CHECK(downs(LEFT,-1)+downs(RIGHT,-1)+downs(UP_ARROW,-1)+downs(DOWN_ARROW,-1)==0);
         CHECK(downs(BACKSPACE,-1)+downs(DELETE,-1)==0);
     }
-    for(int win=0;win<2;win++) {
-        fresh();windows_mode=win;key(1000,70,true);
+    for(int win=0;win<3;win++) {
+        fresh();windows_mode=win==1;linux_mode=win==2;key(1000,70,true);
         key(1010,65,true);key(1030,65,false);key(1040,70,false);settled();
         CHECK(downs(C_PP,0)==1);CHECK(downs(SPACE,-1)==0);
     }
@@ -737,9 +737,9 @@ static void test_num_media_both_os(void) {
 static void test_num_media_rolls(void) {
     const int shifts[]={66,69};
     const int order[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
-    for(int win=0;win<2;win++)for(int s=0;s<2;s++)for(int first=0;first<2;first++)
+    for(int win=0;win<3;win++)for(int s=0;s<2;s++)for(int first=0;first<2;first++)
     for(int arrow=0;arrow<4;arrow++)for(int perm=0;perm<6;perm++) {
-        fresh();windows_mode=win;
+        fresh();windows_mode=win==1;linux_mode=win==2;
         key(1000,first?shifts[s]:70,true);
         key(1010,first?70:shifts[s],true);
         key(1020,71+arrow,true);
@@ -1091,7 +1091,7 @@ int main(void) {
     run("nested replay preserves distinct letter presses and navigation releases",test_nested_replay_keeps_distinct_events);
     run("nested replay timing and chronology sweep",test_nested_replay_timing_sweep);
     run("nested replay preserves FIFO tail and rejects queue overflow",test_nested_replay_fifo_contract);
-    run("NUM media and both Shift keys in macOS and Windows",test_num_media_both_os);
+    run("NUM media and both Shift keys in macOS, Windows and Linux",test_num_media_both_os);
     run("NUM media keeps its press binding through Shift and NUM release rolls",test_num_media_rolls);
     run("all Alt symbols retain early-release modifiers, including Alt+Shift",test_alt_symbol_rolls);
     run("all Alt+Shift symbol press and release orders",test_alt_shift_symbol_release_orders);
